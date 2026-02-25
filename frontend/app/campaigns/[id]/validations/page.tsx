@@ -28,7 +28,7 @@ import { Plus, Loader2, ClipboardCheck, ChevronRight } from "lucide-react";
 // Convert API checker to local Checker format
 function apiToLocalChecker(
   apiChecker: AudienceChecker,
-  index: number
+  index: number,
 ): Checker {
   const businessRules: BusinessRule[] = (apiChecker.rules || []).map((rule) => {
     const parts = rule.field.split(".");
@@ -89,8 +89,8 @@ function localToApiChecker(checker: Checker) {
     checker.inputMode === "query"
       ? checker.query
       : checker.conditionInput
-      ? `WHERE ${checker.conditionInput}`
-      : undefined;
+        ? `WHERE ${checker.conditionInput}`
+        : undefined;
 
   let alignmentReport = undefined;
   if (checker.report) {
@@ -138,7 +138,7 @@ export default function ValidationsPage() {
   // Local state for editing
   const [localCheckers, setLocalCheckers] = useState<Checker[]>([]);
   const [checkerIdMap, setCheckerIdMap] = useState<Map<number, string>>(
-    new Map()
+    new Map(),
   );
   const [pendingChanges, setPendingChanges] = useState<Set<number>>(new Set());
   const [savingChecker, setSavingChecker] = useState<number | null>(null);
@@ -186,17 +186,17 @@ export default function ValidationsPage() {
   const updateLocalChecker = useCallback(
     (id: number, field: keyof Checker, value: unknown) => {
       setLocalCheckers((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, [field]: value } : c))
+        prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)),
       );
       setPendingChanges((prev) => new Set(prev).add(id));
     },
-    []
+    [],
   );
 
   // Toggle expanded state
   const toggleExpanded = useCallback((id: number) => {
     setLocalCheckers((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, expanded: !c.expanded } : c))
+      prev.map((c) => (c.id === id ? { ...c, expanded: !c.expanded } : c)),
     );
   }, []);
 
@@ -206,7 +206,7 @@ export default function ValidationsPage() {
       checkerId: number,
       ruleIndex: number,
       field: keyof BusinessRule,
-      value: string
+      value: string,
     ) => {
       setLocalCheckers((prev) =>
         prev.map((c) => {
@@ -214,11 +214,11 @@ export default function ValidationsPage() {
           const newRules = [...c.businessRules];
           newRules[ruleIndex] = { ...newRules[ruleIndex], [field]: value };
           return { ...c, businessRules: newRules };
-        })
+        }),
       );
       setPendingChanges((prev) => new Set(prev).add(checkerId));
     },
-    []
+    [],
   );
 
   // Add a rule
@@ -233,7 +233,7 @@ export default function ValidationsPage() {
             { table: "", column: "", condition: "" },
           ],
         };
-      })
+      }),
     );
     setPendingChanges((prev) => new Set(prev).add(checkerId));
   }, []);
@@ -248,7 +248,7 @@ export default function ValidationsPage() {
           newRules.push({ table: "", column: "", condition: "" });
         }
         return { ...c, businessRules: newRules };
-      })
+      }),
     );
     setPendingChanges((prev) => new Set(prev).add(checkerId));
   }, []);
@@ -271,7 +271,7 @@ export default function ValidationsPage() {
         // Auto-set table based on column mappings from settings
         const columnLower = column.toLowerCase();
         const mapping = columnTableMappings.find(
-          (m) => m.columnName.toLowerCase() === columnLower
+          (m) => m.columnName.toLowerCase() === columnLower,
         );
         if (mapping) {
           table = mapping.tableName;
@@ -285,12 +285,12 @@ export default function ValidationsPage() {
           prev.map((c) => {
             if (c.id !== checkerId) return c;
             return { ...c, businessRules: newRules };
-          })
+          }),
         );
         setPendingChanges((prev) => new Set(prev).add(checkerId));
       }
     },
-    [columnTableMappings]
+    [columnTableMappings],
   );
 
   // Add new checker
@@ -320,14 +320,14 @@ export default function ValidationsPage() {
       query: string;
       conditionInput: string;
       inputMode: string;
-    }>
+    }>,
   ) => {
-    importedCheckers.forEach((checkerData) => {
-      const newId = nextLocalId;
-      setNextLocalId((prev) => prev + 1);
+    let currentId = nextLocalId;
+    const newCheckers: Checker[] = [];
 
+    importedCheckers.forEach((checkerData) => {
       const newChecker: Checker = {
-        id: newId,
+        id: currentId,
         name: checkerData.name,
         query: checkerData.query || "",
         conditionInput: checkerData.conditionInput || "",
@@ -337,8 +337,15 @@ export default function ValidationsPage() {
         expanded: false,
       };
 
-      setLocalCheckers((prev) => [...prev, newChecker]);
-      setPendingChanges((prev) => new Set(prev).add(newId));
+      newCheckers.push(newChecker);
+      currentId++;
+    });
+
+    setLocalCheckers((prev) => [...prev, ...newCheckers]);
+    setNextLocalId(currentId);
+
+    newCheckers.forEach((checker) => {
+      setPendingChanges((prev) => new Set(prev).add(checker.id));
     });
   };
 
@@ -504,7 +511,10 @@ export default function ValidationsPage() {
             No validations yet. Create one to get started.
           </p>
           <div className="flex gap-2 justify-center">
-            <ImportDialog existingNames={[]} onImport={handleImport} />
+            <ImportDialog
+              existingNames={localCheckers.map((c) => c.name)}
+              onImport={handleImport}
+            />
             <Button onClick={handleAddChecker} className="gap-2">
               <Plus className="h-4 w-4" />
               Add First Validation

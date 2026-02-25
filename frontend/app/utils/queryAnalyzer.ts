@@ -37,7 +37,7 @@ export const parseWhereConditions = (sql: string): string[] => {
   normalizedSql = normalizedSql.replace(/\)OR\b/gi, ") OR");
 
   const whereMatch = normalizedSql.match(
-    /WHERE\s+(.*?)(?:LIMIT|ORDER\s+BY|GROUP\s+BY|HAVING|$)/i
+    /WHERE\s+(.*?)(?:LIMIT|ORDER\s+BY|GROUP\s+BY|HAVING|$)/i,
   );
   if (!whereMatch) return [];
 
@@ -111,7 +111,7 @@ export const extractTableColumns = (sql: string): Record<string, string[]> => {
 
 // Parse business rule format
 export const parseBusinessRule = (
-  ruleText: string
+  ruleText: string,
 ): Record<string, Record<string, string>> => {
   const lines = ruleText.split("\n").filter((line) => line.trim());
   const rules: Record<string, Record<string, string>> = {};
@@ -136,7 +136,7 @@ export const parseBusinessRule = (
 // Helper function to find matching table in business rules
 const findMatchingRuleTable = (
   sqlTableName: string,
-  businessRules: Record<string, Record<string, string>>
+  businessRules: Record<string, Record<string, string>>,
 ): string | null => {
   const sqlTableUpper = sqlTableName.toUpperCase();
 
@@ -173,7 +173,7 @@ const findMatchingRuleTable = (
 // Check if a condition matches the business rule
 export const checkConditionAlignment = (
   condition: string,
-  businessRules: Record<string, Record<string, string>>
+  businessRules: Record<string, Record<string, string>>,
 ): {
   matched: Array<{ table: string; column: string; condition: string }>;
   issues: string[];
@@ -208,7 +208,7 @@ export const checkConditionAlignment = (
       matched.push({ table: ruleTable, column, condition: ruleCondition });
     } else {
       issues.push(
-        `Condition for ${table}.${column} does not align with rule: ${ruleCondition}`
+        `Condition for ${table}.${column} does not align with rule: ${ruleCondition}`,
       );
     }
   } else {
@@ -227,6 +227,88 @@ const isBrandOrMnpBrandField = (columnUpper: string): boolean => {
 
 // Check if a SQL condition matches a business rule condition
 const matchesRule = (sqlCondition: string, ruleCondition: string): boolean => {
+  // Handle generic template: IN({{values}}) - matches any IN with any number of values
+  if (ruleCondition.includes("{{values}}")) {
+    // Extract all values from SQL condition
+    const sqlInMatch = sqlCondition.match(/IN\s*\(\s*(.+?)\s*\)/i);
+    const sqlOrMatch = sqlCondition.match(/=\s*['"](.*?)['"]|=\s*'([^']+)'/g);
+
+    // If SQL has IN clause
+    if (sqlInMatch) {
+      return true; // Any IN matches the generic IN({{values}}) pattern
+    }
+
+    // If SQL has OR conditions with =
+    if (sqlOrMatch && sqlOrMatch.length > 0) {
+      return true; // Any = value pairs match the generic pattern
+    }
+  }
+
+  // Handle template patterns: IN ('{{value}}','{{value}}') with dynamic count
+  if (ruleCondition.includes("{{value}}")) {
+    // For IN clauses, make the value count dynamic
+    if (ruleCondition.includes("IN (")) {
+      // Match IN with any number of quoted values: IN ('val1','val2','val3',...)
+      // Replace template with regex that matches one or more quoted values
+      const regexPattern = ruleCondition
+        .replace(/,\s*'{{value}}'/g, "(?:,\\s*'[^']+')*") // Match zero or more additional values
+        .replace(/'{{value}}'/g, "'[^']+'") // Match at least one value
+        .replace(/\s+/g, "\\s*");
+
+      try {
+        const templateRegex = new RegExp(regexPattern, "i");
+        if (templateRegex.test(sqlCondition)) {
+          return true;
+        }
+      } catch (e) {
+        // Regex is invalid, fall through to other checks
+      }
+    } else {
+      // For non-IN patterns, use original replacement
+      const regexPattern = ruleCondition
+        .replace(/{{value}}/g, "'([^']+)'")
+        .replace(/\s+/g, "\\s*");
+
+      try {
+        const templateRegex = new RegExp(regexPattern, "i");
+        if (templateRegex.test(sqlCondition)) {
+          return true;
+        }
+      } catch (e) {
+        // Regex is invalid, fall through to other checks
+      }
+    }
+  }
+
+  // Handle IN clause in rule: IN ('PAID BILL','PARTIAL PAYMENT')
+  if (ruleCondition.includes("IN (")) {
+    // Extract values from IN clause
+    const inMatch = ruleCondition.match(/IN\s*\(\s*(.+?)\s*\)/i);
+    if (inMatch) {
+      const values = inMatch[1]
+        .split(",")
+        .map((v) => v.trim().replace(/^['"]|['"]$/g, ""))
+        .filter((v) => v);
+
+      // Check if SQL contains any of these values with OR
+      if (values.length > 0) {
+        // Check for "column = 'value' OR column = 'value'" pattern
+        const hasAllValues = values.every(
+          (val) =>
+            sqlCondition.includes(`"${val}"`) ||
+            sqlCondition.includes(`'${val}'`),
+        );
+
+        // Also check for IN clause in SQL
+        const sqlInMatch = sqlCondition.match(/IN\s*\(\s*(.+?)\s*\)/i);
+        const hasInClause =
+          sqlInMatch && values.every((val) => sqlInMatch[1].includes(val));
+
+        return hasAllValues || hasInClause || sqlCondition.includes("OR");
+      }
+    }
+  }
+
   // If rule ONLY has "IS NULL" (not OR), then SQL must have IS NULL
   if (ruleCondition === "IS NULL") {
     return sqlCondition.includes("IS NULL");
@@ -298,7 +380,7 @@ const matchesRule = (sqlCondition: string, ruleCondition: string): boolean => {
 // Generate alignment report
 export const generateAlignmentReport = (
   sql: string,
-  businessRules: Record<string, Record<string, string>>
+  businessRules: Record<string, Record<string, string>>,
 ): AlignmentReport => {
   const conditions = parseWhereConditions(sql);
   const report: AlignmentReport = {
@@ -316,7 +398,7 @@ export const generateAlignmentReport = (
   conditions.forEach((condition) => {
     const { matched, issues } = checkConditionAlignment(
       condition,
-      businessRules
+      businessRules,
     );
     if (matched.length > 0) {
       report.matched.push(...matched);

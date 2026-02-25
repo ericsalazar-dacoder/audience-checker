@@ -156,7 +156,7 @@ export const ConditionEquivalenceConfig: React.FC = () => {
               <div className="flex flex-wrap gap-2">
                 {equiv.sqlPatterns.map((pattern, idx) => (
                   <div
-                    key={idx}
+                    key={`${equiv.id}-pattern-${idx}`}
                     className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-sm font-mono"
                   >
                     <span>{pattern}</span>

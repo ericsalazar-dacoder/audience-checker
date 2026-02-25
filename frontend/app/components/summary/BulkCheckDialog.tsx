@@ -92,7 +92,7 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
         }
 
         const hasValidRules = checker.businessRules.some(
-          (rule) => rule.table && rule.column
+          (rule) => rule.table && rule.column,
         );
         if (!hasValidRules) {
           checkerSummaries.push({
@@ -333,7 +333,7 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
                             <span
                               className={`text-sm font-semibold ${getStatusColor(
                                 item.report,
-                                item.error
+                                item.error,
                               )}`}
                             >
                               {item.report.alignmentPercentage}%
@@ -397,7 +397,7 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
                                       .slice(0, 3)
                                       .map((issue, idx) => (
                                         <li
-                                          key={idx}
+                                          key={`${item.id}-issue-${idx}`}
                                           className="text-red-600 dark:text-red-400"
                                         >
                                           • {issue.condition}

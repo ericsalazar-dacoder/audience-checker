@@ -118,7 +118,7 @@ export const AlignmentReportPanel: React.FC<AlignmentReportPanelProps> = ({
             <div className="space-y-3">
               {report.misaligned.map((issue, idx) => (
                 <Alert
-                  key={idx}
+                  key={`misaligned-${idx}-${issue.condition}`}
                   variant="destructive"
                   className="border-red-700 bg-red-900"
                 >
@@ -128,7 +128,10 @@ export const AlignmentReportPanel: React.FC<AlignmentReportPanelProps> = ({
                   <AlertDescription className="mt-2">
                     <ul className="space-y-1 ml-2">
                       {issue.issues.map((problem, i) => (
-                        <li key={i} className="text-sm">
+                        <li
+                          key={`${issue.condition}-problem-${i}`}
+                          className="text-sm"
+                        >
                           • {problem}
                         </li>
                       ))}

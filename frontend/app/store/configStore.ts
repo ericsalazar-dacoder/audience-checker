@@ -46,7 +46,7 @@ interface ConfigState {
   addConditionEquivalence: (equiv: Omit<ConditionEquivalence, "id">) => void;
   updateConditionEquivalence: (
     id: string,
-    equiv: Partial<ConditionEquivalence>
+    equiv: Partial<ConditionEquivalence>,
   ) => void;
   deleteConditionEquivalence: (id: string) => void;
   addSqlPattern: (equivId: string, pattern: string) => void;
@@ -56,7 +56,7 @@ interface ConfigState {
   addColumnTableMapping: (mapping: Omit<ColumnTableMapping, "id">) => void;
   updateColumnTableMapping: (
     id: string,
-    mapping: Partial<ColumnTableMapping>
+    mapping: Partial<ColumnTableMapping>,
   ) => void;
   deleteColumnTableMapping: (id: string) => void;
 }
@@ -116,6 +116,15 @@ const defaultConditionEquivalences: ConditionEquivalence[] = [
     rulePattern: "0",
     sqlPatterns: ["= '0'", "= 0", "= FALSE", "= 'FALSE'", "= 'N'", "= 'NO'"],
   },
+  {
+    id: "6",
+    name: "Generic IN Condition",
+    rulePattern: "IN({{values}})",
+    sqlPatterns: [
+      '{{column}} = "{{value}}" OR {{column}} = "{{value}}" OR ...',
+      "{{column}} IN ('{{value}}','{{value}}',...)",
+    ],
+  },
 ];
 
 const defaultColumnTableMappings: ColumnTableMapping[] = [
@@ -148,7 +157,7 @@ export const useConfigStore = create<ConfigState>()(
       updateTableAlias: (id, updates) =>
         set((state) => ({
           tableAliases: state.tableAliases.map((a) =>
-            a.id === id ? { ...a, ...updates } : a
+            a.id === id ? { ...a, ...updates } : a,
           ),
         })),
 
@@ -168,14 +177,14 @@ export const useConfigStore = create<ConfigState>()(
       updateConditionEquivalence: (id, updates) =>
         set((state) => ({
           conditionEquivalences: state.conditionEquivalences.map((e) =>
-            e.id === id ? { ...e, ...updates } : e
+            e.id === id ? { ...e, ...updates } : e,
           ),
         })),
 
       deleteConditionEquivalence: (id) =>
         set((state) => ({
           conditionEquivalences: state.conditionEquivalences.filter(
-            (e) => e.id !== id
+            (e) => e.id !== id,
           ),
         })),
 
@@ -184,7 +193,7 @@ export const useConfigStore = create<ConfigState>()(
           conditionEquivalences: state.conditionEquivalences.map((e) =>
             e.id === equivId
               ? { ...e, sqlPatterns: [...e.sqlPatterns, pattern] }
-              : e
+              : e,
           ),
         })),
 
@@ -195,10 +204,10 @@ export const useConfigStore = create<ConfigState>()(
               ? {
                   ...e,
                   sqlPatterns: e.sqlPatterns.filter(
-                    (_, idx) => idx !== patternIndex
+                    (_, idx) => idx !== patternIndex,
                   ),
                 }
-              : e
+              : e,
           ),
         })),
 
@@ -213,19 +222,19 @@ export const useConfigStore = create<ConfigState>()(
       updateColumnTableMapping: (id, updates) =>
         set((state) => ({
           columnTableMappings: state.columnTableMappings.map((m) =>
-            m.id === id ? { ...m, ...updates } : m
+            m.id === id ? { ...m, ...updates } : m,
           ),
         })),
 
       deleteColumnTableMapping: (id) =>
         set((state) => ({
           columnTableMappings: state.columnTableMappings.filter(
-            (m) => m.id !== id
+            (m) => m.id !== id,
           ),
         })),
     }),
     {
       name: "audience-checker-config",
-    }
-  )
+    },
+  ),
 );

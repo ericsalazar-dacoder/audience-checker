@@ -24,61 +24,39 @@ function isHeaderRow(line: string): boolean {
     "segment_type",
     "condition",
   ];
-  // If the line contains at least 2 header-like keywords, it's probably a header
   const matchCount = headerKeywords.filter((kw) =>
-    lowerLine.includes(kw)
+    lowerLine.includes(kw),
   ).length;
   return matchCount >= 2;
 }
 
 /**
- * Check if a line looks like the start of a new data row
- * A new row should start with a name pattern (Aud_*, letters/numbers/underscores)
- * and have multiple tab-separated columns
- */
-function isNewDataRow(line: string): boolean {
-  const trimmed = line.trim();
-  if (!trimmed) return false;
-
-  // Check if it starts with a typical audience name pattern
-  // and has at least a few tab characters (indicating multiple columns)
-  const tabCount = (line.match(/\t/g) || []).length;
-  const startsWithName = /^[A-Za-z][A-Za-z0-9_-]*\t/.test(trimmed);
-
-  return startsWithName && tabCount >= 3;
-}
-
-/**
- * Parse TSV/CSV handling multi-line cells properly
- * Rows are identified by looking for patterns that indicate a new record
+ * Parse TSV/CSV - simple line-by-line parsing
+ * Each line is a row, tab-separated columns
  */
 function parseRows(text: string): string[][] {
-  const lines = text.split("\n");
+  // Normalize line endings to just \n
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  // Split by newline and filter empty lines
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
   const rows: string[][] = [];
-  let currentRowColumns: string[] | null = null;
 
   for (const line of lines) {
-    if (isNewDataRow(line) || isHeaderRow(line)) {
-      // Start of a new row
-      if (currentRowColumns !== null) {
-        rows.push(currentRowColumns);
-      }
-      currentRowColumns = line.split("\t").map((col) => col.trim());
-    } else if (currentRowColumns !== null && line.trim()) {
-      // Continuation of previous row (multi-line cell content)
-      // Append to the last column
-      const lastIdx = currentRowColumns.length - 1;
-      if (lastIdx >= 0) {
-        currentRowColumns[lastIdx] += " " + line.trim();
-      }
+    // Split by tab
+    const columns = line.split("\t").map((col) => col.trim());
+
+    // Only add rows that have at least one non-empty column
+    if (columns.length > 0 && columns.some((col) => col.length > 0)) {
+      rows.push(columns);
     }
   }
 
-  // Don't forget the last row
-  if (currentRowColumns !== null) {
-    rows.push(currentRowColumns);
-  }
-
+  console.log(`Parsed ${rows.length} rows from CSV data`);
   return rows;
 }
 
@@ -93,6 +71,11 @@ export function parseCSVData(csvText: string): AudienceImportData[] {
   const firstRowText = rows[0].join("\t");
   const hasHeader = isHeaderRow(firstRowText);
   const startIndex = hasHeader ? 1 : 0;
+
+  console.log(`Has header: ${hasHeader}, starting from row ${startIndex}`);
+  console.log(
+    `Total rows: ${rows.length}, data rows: ${rows.length - startIndex}`,
+  );
 
   // If we have a header, try to parse column positions from it
   let audienceNameIdx = 0;
@@ -129,7 +112,20 @@ export function parseCSVData(csvText: string): AudienceImportData[] {
     if (!audienceName) continue; // Skip rows without audience name
 
     const sqlQuery = (columns[sqlQueryIdx] ?? "").trim();
-    const condition = (columns[conditionIdx] ?? "").trim();
+    let condition = (columns[conditionIdx] ?? "").trim();
+
+    // Parse IN condition dynamically: IN ('value1','value2') -> "value1" OR "value2"
+    const inMatch = condition.match(/IN\s*\(\s*(.+?)\s*\)/i);
+    if (inMatch) {
+      const values = inMatch[1]
+        .split(",")
+        .map((v) => v.trim().replace(/^['"]|['"]$/g, ""))
+        .filter((v) => v);
+      if (values.length > 0) {
+        // Keep it as: "value1" OR "value2" for dynamic matching
+        condition = values.map((v) => `"${v}"`).join(" OR ");
+      }
+    }
 
     results.push({
       audienceName,
@@ -140,6 +136,8 @@ export function parseCSVData(csvText: string): AudienceImportData[] {
       condition,
     });
   }
+
+  console.log(`Parsed ${results.length} valid audience records`);
 
   if (results.length === 0) {
     throw new Error("No valid data rows found in CSV");

@@ -28,7 +28,7 @@ interface ImportDialogProps {
       query: string;
       conditionInput: string;
       inputMode: string;
-    }>
+    }>,
   ) => void;
 }
 
@@ -40,34 +40,86 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
   const [csvData, setCsvData] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<AudienceImportData[]>([]);
-  const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [skipDuplicates, setSkipDuplicates] = useState(false);
 
   // Check for duplicates - both within import data and against existing checkers
   const { uniqueItems, duplicates, existingDuplicates } = useMemo(() => {
-    const seen = new Set<string>();
+    console.log("=== Duplicate Detection Debug ===");
+    console.log("Preview items count:", preview.length);
+    console.log(
+      "Preview names:",
+      preview.map((p) => `"${p.audienceName}"`).join(", "),
+    );
+
+    const existingNamesLower = existingNames.map((n) => n.toLowerCase().trim());
+
+    // Count how many times each name appears in preview
+    const nameCount = new Map<string, string[]>(); // map name to list of original names with that lowercase
+
+    for (const item of preview) {
+      const nameLower = item.audienceName.toLowerCase().trim();
+      if (!nameCount.has(nameLower)) {
+        nameCount.set(nameLower, []);
+      }
+      nameCount.get(nameLower)!.push(item.audienceName);
+    }
+
+    console.log(
+      "Name counts:",
+      Array.from(nameCount.entries())
+        .map(([k, v]) => `${k}: ${v.length}`)
+        .join(", "),
+    );
+
+    // Find duplicates: names that appear more than once in preview
+    const dupeNames = new Set<string>();
+    const existingDupeNames = new Set<string>();
+
+    for (const [nameLower, names] of nameCount) {
+      // Check if this name exists in current checkers
+      if (existingNamesLower.includes(nameLower)) {
+        for (const name of names) {
+          existingDupeNames.add(name);
+        }
+      }
+
+      // Check if this name appears multiple times in preview
+      if (names.length > 1) {
+        for (const name of names) {
+          dupeNames.add(name);
+        }
+      }
+    }
+
+    console.log("Import duplicates:", Array.from(dupeNames).join(", "));
+    console.log(
+      "Existing duplicates:",
+      Array.from(existingDupeNames).join(", "),
+    );
+
+    // Build result arrays
     const unique: AudienceImportData[] = [];
     const dupes: string[] = [];
     const existingDupes: string[] = [];
 
-    const existingNamesLower = existingNames.map((n) => n.toLowerCase().trim());
-
     for (const item of preview) {
-      const nameLower = item.audienceName.toLowerCase().trim();
+      const isExistingDupe = existingDupeNames.has(item.audienceName);
+      const isImportDupe = dupeNames.has(item.audienceName);
 
-      // Check if exists in current checkers
-      if (existingNamesLower.includes(nameLower)) {
+      if (isExistingDupe) {
         existingDupes.push(item.audienceName);
-        if (skipDuplicates) continue;
-      }
-
-      // Check if duplicate within import data
-      if (seen.has(nameLower)) {
+        if (!skipDuplicates) {
+          unique.push(item);
+        }
+      } else if (isImportDupe) {
         dupes.push(item.audienceName);
-        if (skipDuplicates) continue;
+        if (!skipDuplicates) {
+          unique.push(item);
+        }
+      } else {
+        // No duplicate found
+        unique.push(item);
       }
-
-      seen.add(nameLower);
-      unique.push(item);
     }
 
     return {
@@ -79,13 +131,6 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
 
   // Items to import based on skipDuplicates setting
   const itemsToImport = skipDuplicates ? uniqueItems : preview;
-
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const pastedText = e.clipboardData.getData("text");
-    setCsvData(pastedText);
-    setError(null);
-    tryParseData(pastedText);
-  };
 
   const tryParseData = (text: string) => {
     try {
@@ -147,7 +192,6 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
                 setCsvData(e.target.value);
                 tryParseData(e.target.value);
               }}
-              onPaste={handlePaste}
               placeholder="Paste your CSV data here (tab-separated or comma-separated)..."
               rows={8}
               className="font-mono text-sm"
@@ -200,63 +244,81 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
                 Preview ({preview.length} parsed, {itemsToImport.length} to
                 import):
               </label>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {preview.map((item, idx) => {
-                  const isExistingDupe = existingDuplicates.includes(
-                    item.audienceName
-                  );
-                  const isImportDupe = duplicates.includes(item.audienceName);
-                  const isDupe = isExistingDupe || isImportDupe;
-                  const willBeSkipped = isDupe && skipDuplicates;
 
-                  return (
-                    <div
-                      key={idx}
-                      className={`border rounded p-3 space-y-1 text-sm ${
-                        willBeSkipped ? "opacity-50 border-amber-500" : ""
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-base">
-                          {item.audienceName}
-                        </span>
-                        {isExistingDupe && (
-                          <span className="text-xs px-2 py-0.5 bg-amber-200 dark:bg-amber-800 rounded text-amber-800 dark:text-amber-200">
-                            Already exists
-                            {willBeSkipped ? " (skipped)" : " (will import)"}
-                          </span>
-                        )}
-                        {isImportDupe && (
-                          <span className="text-xs px-2 py-0.5 bg-amber-200 dark:bg-amber-800 rounded text-amber-800 dark:text-amber-200">
-                            Duplicate
-                            {willBeSkipped ? " (skipped)" : " (will import)"}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-muted-foreground">
-                        {item.description}
-                      </div>
-                      <div className="text-xs">
-                        <span className="font-medium">Input Mode:</span>{" "}
-                        {item.condition ? "Condition" : "Query"}
-                      </div>
-                      {item.condition && (
-                        <div className="text-xs font-mono bg-muted p-2 rounded">
-                          <span className="font-medium">Condition:</span>{" "}
-                          {item.condition.substring(0, 100)}
-                          {item.condition.length > 100 ? "..." : ""}
-                        </div>
-                      )}
-                      {!item.condition && item.sqlQuery && (
-                        <div className="text-xs font-mono bg-muted p-2 rounded">
-                          <span className="font-medium">Query:</span>{" "}
-                          {item.sqlQuery.substring(0, 100)}
-                          {item.sqlQuery.length > 100 ? "..." : ""}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+              {/* Table View */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted sticky top-0">
+                      <tr>
+                        <th className="border-b px-3 py-2 text-left font-medium">
+                          Audience Name
+                        </th>
+                        <th className="border-b px-3 py-2 text-left font-medium">
+                          Description
+                        </th>
+                        <th className="border-b px-3 py-2 text-left font-medium">
+                          Mode
+                        </th>
+                        <th className="border-b px-3 py-2 text-left font-medium">
+                          Status
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.map((item, idx) => {
+                        const isExistingDupe = existingDuplicates.includes(
+                          item.audienceName,
+                        );
+                        const isImportDupe = duplicates.includes(
+                          item.audienceName,
+                        );
+                        const isDupe = isExistingDupe || isImportDupe;
+                        const willBeSkipped = isDupe && skipDuplicates;
+
+                        return (
+                          <tr
+                            key={`preview-${item.audienceName}-${idx}`}
+                            className={`border-b hover:bg-muted/50 ${
+                              willBeSkipped
+                                ? "opacity-50 bg-amber-50 dark:bg-amber-950/20"
+                                : ""
+                            }`}
+                          >
+                            <td className="px-3 py-2 font-medium">
+                              {item.audienceName}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
+                              {item.description}
+                            </td>
+                            <td className="px-3 py-2 text-xs">
+                              <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded">
+                                {item.condition ? "Condition" : "Query"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              {isExistingDupe && (
+                                <span className="text-xs px-2 py-1 bg-amber-200 dark:bg-amber-800 rounded text-amber-800 dark:text-amber-200">
+                                  Exists
+                                </span>
+                              )}
+                              {isImportDupe && !isExistingDupe && (
+                                <span className="text-xs px-2 py-1 bg-orange-200 dark:bg-orange-800 rounded text-orange-800 dark:text-orange-200">
+                                  Duplicate
+                                </span>
+                              )}
+                              {!isDupe && (
+                                <span className="text-xs px-2 py-1 bg-green-200 dark:bg-green-800 rounded text-green-800 dark:text-green-200">
+                                  Ready
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
