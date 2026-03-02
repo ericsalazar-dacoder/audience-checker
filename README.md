@@ -305,3 +305,233 @@ For issues and questions:
 ## License
 
 ISC
+
+# Audience Checker
+
+A full-stack application for checking SQL query alignment with business rules using a modern web interface. Built with Next.js (frontend) and Express.js + TypeScript (backend).
+
+## Project Overview
+
+- **Frontend**: Next.js 14 web application with MUI, Ant Design, shadcn/ui, and Tailwind CSS
+- **Backend**: Express.js API with TypeScript and Drizzle ORM
+- **Database**: MySQL
+- **State Management**: Zustand
+
+## Features
+
+- **Campaign Management**: Create, organize, and manage marketing campaigns
+- **Audience Checkers**: Validate SQL queries against business rules
+- **Alignment Reports**: Visual reports showing matched, misaligned, and undefined conditions
+- **Bulk Import**: Import business rules from Excel (tab-separated format)
+- **Flexible Input Modes**: Full SQL queries or WHERE clause conditions
+- **Settings Configuration**: Table aliases, column mappings, and condition equivalence
+
+## Project Structure
+
+```
+audience-checker/
+├── frontend/                    # Next.js web application
+│   ├── app/
+│   │   ├── audience/            # Audience management page
+│   │   ├── campaigns/           # Campaign pages and subpages
+│   │   │   ├── [id]/            # Dynamic campaign detail pages
+│   │   │   │   ├── audience/    # Campaign audience checker
+│   │   │   │   └── validations/ # Campaign validations
+│   │   ├── components/          # Feature components
+│   │   │   ├── checker/         # Checker-related components
+│   │   │   ├── import/          # Import dialogs
+│   │   │   ├── layout/          # Layout components (Header, Sidebar)
+│   │   │   ├── settings/        # Settings configuration components
+│   │   │   └── summary/         # Summary and bulk check dialogs
+│   │   ├── core/                # Core types and constants
+│   │   ├── providers/           # React context providers
+│   │   ├── query-generator/     # Query generation tools
+│   │   ├── services/            # API service layer
+│   │   ├── settings/            # Settings pages
+│   │   ├── store/               # Zustand state stores
+│   │   └── utils/               # Utility functions
+│   ├── components/ui/           # shadcn/ui components
+│   ├── hooks/                   # Custom React hooks
+│   ├── lib/                     # Utility functions
+│   └── public/                  # Static assets
+├── backend/                     # Express.js API server
+│   ├── src/
+│   │   ├── server.ts            # Main server entry point
+│   │   ├── controllers/         # Route controllers
+│   │   ├── db/                  # Database schema and connection
+│   │   ├── middleware/          # Express middleware
+│   │   ├── routes/              # API route definitions
+│   │   ├── services/            # Business logic services
+│   │   ├── types/               # TypeScript type definitions
+│   │   └── utils/               # Helper utilities
+│   ├── drizzle/                 # Database migrations
+│   └── scripts/                 # Database seeding scripts
+└── README.md
+```
+
+## Getting Started
+
+### Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- **Node.js** (v18 or higher)
+- **npm** (v9 or higher) or **yarn**
+- **MySQL** (v5.7 or higher)
+- **Git**
+
+### Quick Start
+
+```bash
+# Clone and enter the project
+git clone <repository-url>
+cd audience-checker
+
+# Setup backend
+cd backend
+npm install
+cp .env.example .env  # Edit with your MySQL credentials
+npm run db:push
+npm run seed          # Optional: seed sample data
+npm run dev
+
+# In a new terminal, setup frontend
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000` in your browser.
+
+### Environment Configuration
+
+**Backend** (`backend/.env`):
+
+```env
+PORT=5000
+NODE_ENV=development
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_password
+DB_NAME=audience_checker
+CORS_ORIGIN=http://localhost:3000
+```
+
+**Frontend** (`frontend/.env.local`):
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:5000
+```
+
+## Running the Application
+
+### Start Backend Server
+
+From the `backend` directory:
+
+```bash
+npm run dev
+```
+
+The backend API will be running on `http://localhost:5000`
+
+### Start Frontend Development Server
+
+From the `frontend` directory (in a new terminal):
+
+```bash
+npm run dev
+```
+
+The frontend will be running on `http://localhost:3000`
+
+### Building for Production
+
+#### Build Backend
+
+```bash
+cd backend
+npm run build
+npm start
+```
+
+#### Build Frontend
+
+```bash
+cd frontend
+npm run build
+npm start
+```
+
+## Available Scripts
+
+### Backend Scripts
+
+| Command               | Description                              |
+| --------------------- | ---------------------------------------- |
+| `npm run dev`         | Start development server with hot reload |
+| `npm run build`       | Build TypeScript to JavaScript           |
+| `npm start`           | Start production server                  |
+| `npm run lint`        | Run ESLint                               |
+| `npm run type-check`  | Check TypeScript types                   |
+| `npm run seed`        | Seed database with initial data          |
+| `npm run db:generate` | Generate database migrations             |
+| `npm run db:migrate`  | Run database migrations                  |
+| `npm run db:push`     | Push schema to database                  |
+| `npm run db:studio`   | Open Drizzle Studio                      |
+
+### Frontend Scripts
+
+| Command         | Description              |
+| --------------- | ------------------------ |
+| `npm run dev`   | Start development server |
+| `npm run build` | Build for production     |
+| `npm start`     | Start production server  |
+| `npm run lint`  | Run ESLint               |
+
+## Technology Stack
+
+### Frontend
+
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript
+- **UI Libraries**: Material-UI (MUI 5), Ant Design 5, shadcn/ui
+- **Styling**: Tailwind CSS 4, Emotion
+- **State Management**: Zustand
+- **HTTP Client**: Axios
+- **Icons**: Lucide React, MUI Icons
+- **Utilities**: sql-formatter, react-syntax-highlighter
+
+### Backend
+
+- **Runtime**: Node.js
+- **Framework**: Express.js
+- **Language**: TypeScript
+- **ORM**: Drizzle ORM
+- **Database**: MySQL
+- **Database Driver**: mysql2
+
+## Database Schema
+
+The application uses three main tables:
+
+- **campaigns**: Stores campaign information with name, description, type, and status flags
+- **audience_checkers**: Links to campaigns, stores queries, rules, and alignment reports
+- **rules**: Individual business rules linked to audience checkers
+
+## API Endpoints
+
+### Campaigns
+
+| Method   | Endpoint             | Description                     |
+| -------- | -------------------- | ------------------------------- |
+| `GET`    | `/api/campaigns`     | Get all campaigns               |
+| `GET`    | `/api/campaigns/:id` | Get campaign by ID with details |
+| `POST`   | `/api/campaigns`     | Create new campaign             |
+| `PUT`    | `/api/campaigns/:id` | Update campaign                 |
+| `DELETE` | `/api/campaigns/:id` | Delete campaign                 |
+
+### Audience Checkers
+
+| Method | En

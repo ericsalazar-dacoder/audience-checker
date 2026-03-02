@@ -1,110 +1,98 @@
-/**
- * Database seed script using Drizzle ORM
- */
+dpoint                             | Description                     |
+| -------- | ------------------------------------ | ------------------------------- |
+| `GET`    | `/api/checkers/campaign/:campaignId` | Get all checkers for a campaign |
+| `GET`    | `/api/checkers/:id`                  | Get checker by ID with rules    |
+| `POST`   | `/api/checkers`                      | Create new checker              |
+| `PUT`    | `/api/checkers/:id`                  | Update checker                  |
+| `DELETE` | `/api/checkers/:id`                  | Delete checker                  |
 
-import "dotenv/config";
-import { v4 as uuidv4 } from "uuid";
-import {
-  initializeDatabase,
-  closeDatabase,
-  getDatabase,
-  campaigns,
-  audienceCheckers,
-  rules,
-} from "../src/db";
-import { logger } from "../src/utils/helpers";
-import { CheckerStatus } from "../src/types";
+### Rules
 
-async function seedDatabase(): Promise<void> {
-  try {
-    logger.info("Starting database seeding...");
+| Method   | Endpoint                         | Description         |
+| -------- | -------------------------------- | ------------------- |
+| `POST`   | `/api/checkers/:checkerId/rules` | Add rule to checker |
+| `DELETE` | `/api/checkers/rules/:ruleId`    | Delete rule         |
 
-    await initializeDatabase();
-    const db = getDatabase();
+For detailed API documentation, refer to the backend source code.
 
-    // Create sample campaigns
-    const campaign1Id = uuidv4();
-    const campaign2Id = uuidv4();
+## Troubleshooting
 
-    await db.insert(campaigns).values({
-      id: campaign1Id,
-      name: "Play Journey Campaign",
-      description: "Campaign for play journey audience",
-      campaignType: "play",
-      activeFlag: true,
-      lockedFlag: false,
-    });
+### Port Already in Use
 
-    await db.insert(campaigns).values({
-      id: campaign2Id,
-      name: "Comeback Journey Campaign",
-      description: "Campaign for comeback journey audience",
-      campaignType: "comeback",
-      activeFlag: true,
-      lockedFlag: false,
-    });
+If port 3000 or 5000 is already in use:
 
-    logger.info("✅ Campaigns created", { campaign1Id, campaign2Id });
+```bash
+# Frontend (change port)
+npm run dev -- -p 3001
 
-    // Create sample checkers for campaign 1
-    const checker1Id = uuidv4();
-    const checker2Id = uuidv4();
+# Backend (update PORT in .env)
+PORT=5001 npm run dev
+```
 
-    await db.insert(audienceCheckers).values({
-      id: checker1Id,
-      campaignId: campaign1Id,
-      name: "Mobile Users Checker",
-      rules: JSON.stringify([]),
-      status: CheckerStatus.ACTIVE as
-        | "pending"
-        | "active"
-        | "inactive"
-        | "completed",
-      alignmentStatus: null,
-      lastChecked: null,
-    });
+### Database Connection Error
 
-    await db.insert(audienceCheckers).values({
-      id: checker2Id,
-      campaignId: campaign1Id,
-      name: "High Value Users Checker",
-      rules: JSON.stringify([]),
-      status: CheckerStatus.ACTIVE as
-        | "pending"
-        | "active"
-        | "inactive"
-        | "completed",
-      alignmentStatus: null,
-      lastChecked: null,
-    });
+1. Verify MySQL is running
+2. Check database credentials in `.env`
+3. Ensure the database exists:
+   ```bash
+   mysql -u root -p
+   CREATE DATABASE audience_checker;
+   ```
 
-    logger.info("✅ Checkers created", { checker1Id, checker2Id });
+### Dependencies Installation Issues
 
-    // Create sample rules for checker 1
-    await db.insert(rules).values({
-      id: uuidv4(),
-      checkerId: checker1Id,
-      field: "device_type",
-      operator: "equals",
-      value: "mobile",
-    });
+Clear cache and reinstall:
 
-    await db.insert(rules).values({
-      id: uuidv4(),
-      checkerId: checker1Id,
-      field: "active_status",
-      operator: "equals",
-      value: "active",
-    });
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```
 
-    logger.info("✅ Rules created");
-    logger.info("🎉 Database seeded successfully");
-  } catch (error) {
-    logger.error("❌ Error seeding database", error);
-    process.exit(1);
-  } finally {
-    await closeDatabase();
-  }
-}
+## Development Workflow
 
-seedDatabase();
+1. Create a new branch for your feature
+2. Make changes in frontend/backend directories
+3. Test locally with `npm run dev`
+4. Build and verify with `npm run build`
+5. Commit changes with clear messages
+6. Push to repository and create a pull request
+
+## Environment Variables Reference
+
+### Backend (.env)
+
+| Variable      | Description           | Example                 |
+| ------------- | --------------------- | ----------------------- |
+| `PORT`        | API server port       | `5000`                  |
+| `NODE_ENV`    | Environment mode      | `development`           |
+| `DB_HOST`     | Database host         | `localhost`             |
+| `DB_PORT`     | Database port         | `3306`                  |
+| `DB_USER`     | Database user         | `root`                  |
+| `DB_PASSWORD` | Database password     | `password`              |
+| `DB_NAME`     | Database name         | `audience_checker`      |
+| `CORS_ORIGIN` | Frontend URL for CORS | `http://localhost:3000` |
+
+### Frontend (.env.local)
+
+| Variable              | Description     | Example                 |
+| --------------------- | --------------- | ----------------------- |
+| `NEXT_PUBLIC_API_URL` | Backend API URL | `http://localhost:5000` |
+
+## Performance Tips
+
+- Use `npm ci` instead of `npm install` in production for deterministic builds
+- Enable caching in CI/CD pipelines
+- Use database indexes for frequently queried columns
+- Consider implementing pagination for large result sets
+
+## Support
+
+For issues and questions:
+
+1. Check the project documentation
+2. Review existing GitHub issues
+3. Create a new issue with detailed information
+
+## License
+
+ISC

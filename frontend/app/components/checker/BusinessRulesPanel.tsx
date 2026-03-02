@@ -6,7 +6,7 @@ import { Card, CardContent, CardTitle, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus } from "lucide-react";
+import { Trash2, Plus, Download } from "lucide-react";
 
 interface BusinessRulesPanelProps {
   checkerId: number;
@@ -31,6 +31,41 @@ export const BusinessRulesPanel: React.FC<BusinessRulesPanelProps> = ({
   onPasteBulkRules,
   onCheckAlignment,
 }) => {
+  const handleSaveAllRules = () => {
+    if (businessRules.length === 0) {
+      alert("No business rules to save");
+      return;
+    }
+
+    // Convert rules to CSV format
+    const headers = ["Table Name", "Column Name", "Condition"];
+    const rows = businessRules.map((rule) => [
+      rule.table || "",
+      rule.column || "",
+      rule.condition || "",
+    ]);
+
+    // Create CSV content
+    const csvContent = [
+      headers.join("\t"),
+      ...rows.map((row) => row.join("\t")),
+    ].join("\n");
+
+    // Create and download file
+    const element = document.createElement("a");
+    element.setAttribute(
+      "href",
+      "data:text/plain;charset=utf-8," + encodeURIComponent(csvContent)
+    );
+    element.setAttribute("download", `business-rules-${Date.now()}.tsv`);
+    element.style.display = "none";
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+
+    alert("Business rules saved successfully!");
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3 border-b">
@@ -134,6 +169,15 @@ BB_POSTPAID	brand_type_code	WIRELINE"
           </Button>
           <Button onClick={onCheckAlignment} size="sm" className="gap-2">
             Check Alignment
+          </Button>
+          <Button
+            onClick={handleSaveAllRules}
+            size="sm"
+            variant="outline"
+            className="gap-2 ml-auto"
+          >
+            <Download className="h-4 w-4" />
+            Save All Rules
           </Button>
         </div>
       </CardContent>

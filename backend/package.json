@@ -10,10 +10,12 @@
     "seed": "ts-node scripts/seed.ts",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:create": "mysql -u root -e \"CREATE DATABASE IF NOT EXISTS audience_checker;\"",
+    "db:generate": "drizzle-kit generate:mysql --config=drizzle.config.ts",
+    "db:migrate": "drizzle-kit up:mysql --config=drizzle.config.ts",
+    "db:push": "drizzle-kit push:mysql --config=drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
+    "db:setup": "npm run db:create && npm run db:push"
   },
   "keywords": [
     "audience",

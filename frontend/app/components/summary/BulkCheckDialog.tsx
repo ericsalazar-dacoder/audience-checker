@@ -21,6 +21,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronUp,
+  Download,
 } from "lucide-react";
 
 interface CheckerSummary {
@@ -64,6 +65,55 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
       }
       return next;
     });
+  };
+
+  const handleSaveAllResults = () => {
+    if (!summary) return;
+
+    // Convert results to CSV format
+    const headers = [
+      "Checker Name",
+      "Status",
+      "Alignment %",
+      "Matched",
+      "Issues",
+      "Total Conditions",
+    ];
+    const rows = summary.checkers.map((item) => [
+      item.name,
+      item.error ? "Error" : item.report ? "Checked" : "Skipped",
+      item.report?.alignmentPercentage?.toString() || "N/A",
+      item.report?.matched.length?.toString() || "0",
+      item.report?.misaligned.length?.toString() || "0",
+      item.report?.totalConditions?.toString() || "0",
+    ]);
+
+    // Create CSV content
+    const csvContent = [
+      headers.join("\t"),
+      ...rows.map((row) => row.join("\t")),
+      "",
+      "Summary",
+      `Total,${summary.total}`,
+      `Healthy,${summary.healthy}`,
+      `Warnings,${summary.warning}`,
+      `Failed,${summary.failed}`,
+      `Average Alignment %,${summary.averageAlignment}`,
+    ].join("\n");
+
+    // Create and download file
+    const element = document.createElement("a");
+    element.setAttribute(
+      "href",
+      "data:text/plain;charset=utf-8," + encodeURIComponent(csvContent)
+    );
+    element.setAttribute("download", `bulk-check-results-${Date.now()}.tsv`);
+    element.style.display = "none";
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+
+    alert("Results saved successfully!");
   };
 
   const runBulkCheck = () => {
@@ -431,6 +481,14 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
                   }}
                 >
                   Reset
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleSaveAllResults}
+                  className="gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Save All Results
                 </Button>
                 <Button onClick={() => setOpen(false)}>Close</Button>
               </div>

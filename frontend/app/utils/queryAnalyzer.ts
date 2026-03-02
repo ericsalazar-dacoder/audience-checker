@@ -121,7 +121,10 @@ export const parseBusinessRule = (
     if (parts.length >= 2) {
       const table = parts[0].toUpperCase();
       const column = parts[1].toUpperCase();
-      const condition = parts.slice(2).join(" ");
+      let condition = parts.slice(2).join(" ");
+
+      // Remove wrapping quotes if they wrap the entire condition
+      condition = condition.replace(/^["']|["']$/g, "").trim();
 
       if (!rules[table]) {
         rules[table] = {};

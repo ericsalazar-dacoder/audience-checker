@@ -40,7 +40,7 @@ export const useCheckerStore = create<CheckerStore>((set) => ({
   updateChecker: (id, field, value) =>
     set((state) => ({
       checkers: state.checkers.map((checker) =>
-        checker.id === id ? { ...checker, [field]: value } : checker
+        checker.id === id ? { ...checker, [field]: value } : checker,
       ),
     })),
 
@@ -54,7 +54,7 @@ export const useCheckerStore = create<CheckerStore>((set) => ({
       checkers: state.checkers.map((checker) =>
         checker.id === id
           ? { ...checker, expanded: !checker.expanded }
-          : checker
+          : checker,
       ),
     })),
 
@@ -65,10 +65,10 @@ export const useCheckerStore = create<CheckerStore>((set) => ({
           ? {
               ...checker,
               businessRules: checker.businessRules.map((rule, idx) =>
-                idx === ruleIndex ? { ...rule, [field]: value } : rule
+                idx === ruleIndex ? { ...rule, [field]: value } : rule,
               ),
             }
-          : checker
+          : checker,
       ),
     })),
 
@@ -83,7 +83,7 @@ export const useCheckerStore = create<CheckerStore>((set) => ({
                 { table: "", column: "", condition: "" },
               ],
             }
-          : checker
+          : checker,
       ),
     })),
 
@@ -94,10 +94,10 @@ export const useCheckerStore = create<CheckerStore>((set) => ({
           ? {
               ...checker,
               businessRules: checker.businessRules.filter(
-                (_, idx) => idx !== ruleIndex
+                (_, idx) => idx !== ruleIndex,
               ),
             }
-          : checker
+          : checker,
       ),
     })),
 
@@ -110,13 +110,23 @@ export const useCheckerStore = create<CheckerStore>((set) => ({
 
       const lines = pastedText.trim().split("\n");
       const parsedRules: BusinessRule[] = [];
+      let currentRule: {
+        table: string;
+        column: string;
+        condition: string;
+      } | null = null;
 
-      lines.forEach((line) => {
+      let i = 0;
+      while (i < lines.length) {
+        let line = lines[i];
         let trimmedLine = line.trim();
-        if (!trimmedLine) return;
+        i++;
+
+        if (!trimmedLine) continue;
 
         trimmedLine = trimmedLine.replace(/\t+/g, "\t");
 
+        // Parse the line to check if it's a valid rule
         let parts: string[];
         if (trimmedLine.includes("\t")) {
           parts = trimmedLine.split("\t").map((p) => p.trim());
@@ -124,29 +134,100 @@ export const useCheckerStore = create<CheckerStore>((set) => ({
           parts = trimmedLine.split(/\s{2,}/).map((p) => p.trim());
         }
 
-        if (parts.length >= 3) {
-          let tableName = parts[0].toUpperCase();
-          const columnName = parts[1].toUpperCase();
+        // Detect rule structure: could be simple (table, column, condition)
+        // or complex with merged cells (table, empty, empty, column, empty, condition)
+        let tableName: string | null = null;
+        let columnName: string | null = null;
+        let condition: string | null = null;
+
+        if (
+          parts.length > 4 &&
+          parts[1] === "" &&
+          parts[2] === "" &&
+          parts[3]
+        ) {
+          // Complex structure with merged cells: parts[0] = table, parts[3] = column, parts[5+] = condition
+          tableName = parts[0];
+          columnName = parts[3];
+          condition = parts.slice(5).join(" ");
+        } else if (parts.length >= 3) {
+          // Simple structure with tabs: parts[0] = table, parts[1] = column, parts[2+] = condition
+          tableName = parts[0];
+          columnName = parts[1];
+          condition = parts.slice(2).join(" ");
+        }
+
+        const isNewRule =
+          tableName && columnName && condition && !tableName.match(/^[\(\><=]/);
+
+        // Check if condition has unclosed quotes - if so, consume lines until closing quote
+        if (isNewRule && condition) {
+          const openQuotes = (condition.match(/"/g) || []).length;
+          
+          if (openQuotes % 2 === 1) {
+            // Unclosed quote - consume next lines until we find the closing quote
+            while (i < lines.length) {
+              const nextLine = lines[i];
+              const nextTrimmed = nextLine.trim();
+              if (!nextTrimmed) {
+                i++;
+                continue;
+              }
+              condition += " " + nextTrimmed;
+              i++;
+              
+              const totalQuotes = (condition.match(/"/g) || []).length;
+              if (totalQuotes % 2 === 0) {
+                break;
+              }
+            }
+          }
+        }
+
+        // Now check if line starts like a condition (for non-rule lines)
+        const startsLikeCondition =
+          /^[(>"<=]|^(OR|AND)\s|^\d+\s|^(IS|LIKE)/.test(trimmedLine);
+
+        // If it starts like a condition and we have a current rule, it's a continuation
+        if (!isNewRule && startsLikeCondition && currentRule) {
+          // Add to existing rule's condition
+          currentRule.condition += " " + trimmedLine;
+          continue;
+
+        if (isNewRule) {
+          let finalTableName = tableName!.toUpperCase();
+          const finalColumnName = columnName!.toUpperCase();
 
           // Map ucg_tag and blacklist_tag to UNIVERSAL_EXCLUSION_LIST
-          if (columnName === "UCG_TAG" || columnName === "BLACKLIST_TAG") {
-            tableName = "UNIVERSAL_EXCLUSION_LIST";
+          if (
+            finalColumnName === "UCG_TAG" ||
+            finalColumnName === "BLACKLIST_TAG"
+          ) {
+            finalTableName = "UNIVERSAL_EXCLUSION_LIST";
           }
 
-          parsedRules.push({
-            table: tableName,
-            column: parts[1],
-            condition: parts.slice(2).join(" "),
-          });
+          currentRule = {
+            table: finalTableName,
+            column: columnName!,
+            condition: condition!,
+          };
         }
-      });
+      }
+
+      // Don't forget the last rule
+      if (currentRule) {
+        currentRule.condition = currentRule.condition
+          .replace(/^["']|["']$/g, "")
+          .trim();
+        parsedRules.push(currentRule);
+      }
 
       if (parsedRules.length > 0) {
         return {
           checkers: state.checkers.map((checker) =>
             checker.id === checkerId
               ? { ...checker, businessRules: parsedRules }
-              : checker
+              : checker,
           ),
         };
       } else {
@@ -156,7 +237,7 @@ export const useCheckerStore = create<CheckerStore>((set) => ({
     }),
 
   addMultipleCheckers: (
-    newCheckers: Array<{ name: string; conditions: string }>
+    newCheckers: Array<{ name: string; conditions: string }>,
   ) =>
     set((state) => {
       let currentId = state.nextId;
