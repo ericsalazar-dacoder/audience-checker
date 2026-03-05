@@ -29,6 +29,12 @@ interface ImportDialogProps {
       conditionInput: string;
       inputMode: string;
     }>,
+    updates?: Array<{
+      name: string;
+      query: string;
+      conditionInput: string;
+      inputMode: string;
+    }>,
   ) => void;
 }
 
@@ -41,6 +47,12 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<AudienceImportData[]>([]);
   const [skipDuplicates, setSkipDuplicates] = useState(false);
+  const [updateMode, setUpdateMode] = useState<"skip" | "update" | "import">(
+    "skip",
+  );
+  const [selectedForUpdate, setSelectedForUpdate] = useState<Set<string>>(
+    new Set(),
+  );
 
   // Check for duplicates - both within import data and against existing checkers
   const { uniqueItems, duplicates, existingDuplicates } = useMemo(() => {
@@ -144,17 +156,44 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
   };
 
   const handleImport = () => {
-    if (itemsToImport.length === 0) {
+    if (itemsToImport.length === 0 && selectedForUpdate.size === 0) {
       setError("No valid data to import");
       return;
     }
 
-    const checkers = itemsToImport.map(convertToCheckerData);
-    onImport(checkers);
+    // Build the updates list from selected items
+    const updates = Array.from(selectedForUpdate)
+      .map((name) => preview.find((p) => p.audienceName === name))
+      .filter((item): item is AudienceImportData => item !== undefined)
+      .map((item) => ({
+        name: item.audienceName,
+        query: item.sqlQuery || "",
+        conditionInput: item.condition || "",
+        inputMode: item.condition ? "condition" : "query",
+      }));
+
+    // Exclude items that are selected for update or are existing duplicates
+    // being skipped, so they don't get re-added as new checkers
+    const existingNamesLower = existingNames.map((n) => n.toLowerCase().trim());
+    const filteredForImport = itemsToImport.filter((item) => {
+      const nameLower = item.audienceName.toLowerCase().trim();
+      const isExisting = existingNamesLower.includes(nameLower);
+      // If in update mode, exclude all existing duplicates (selected ones go to updates)
+      if (updateMode === "update" && isExisting) return false;
+      // If in skip mode, exclude existing duplicates
+      if (updateMode === "skip" && isExisting) return false;
+      return true;
+    });
+
+    const checkers = filteredForImport.map(convertToCheckerData);
+
+    onImport(checkers, updates.length > 0 ? updates : undefined);
     setOpen(false);
     setCsvData("");
     setPreview([]);
     setError(null);
+    setSelectedForUpdate(new Set());
+    setUpdateMode("skip");
   };
 
   return (
@@ -200,49 +239,113 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
 
           {preview.length > 0 && (
             <div>
-              {/* Duplicate warnings */}
+              {/* Duplicate warnings and options */}
               {(duplicates.length > 0 || existingDuplicates.length > 0) && (
-                <Alert className="mb-3 border-amber-500 bg-amber-50 dark:bg-amber-950">
-                  <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  <AlertDescription className="text-amber-800 dark:text-amber-200">
-                    {existingDuplicates.length > 0 && (
-                      <div>
-                        <span className="font-medium">
-                          {existingDuplicates.length} already exist:
-                        </span>{" "}
-                        {existingDuplicates.join(", ")}
-                      </div>
-                    )}
-                    {duplicates.length > 0 && (
-                      <div>
-                        <span className="font-medium">
-                          {duplicates.length} duplicates in import:
-                        </span>{" "}
-                        {duplicates.join(", ")}
-                      </div>
-                    )}
-                    <div className="mt-2 flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="skipDuplicates"
-                        checked={skipDuplicates}
-                        onChange={(e) => setSkipDuplicates(e.target.checked)}
-                        className="h-4 w-4 rounded border-amber-500 accent-amber-600"
-                      />
-                      <label
-                        htmlFor="skipDuplicates"
-                        className="text-sm cursor-pointer"
+                <div className="mb-3 space-y-3">
+                  {/* Existing duplicates info */}
+                  {existingDuplicates.length > 0 && (
+                    <Alert className="border-amber-500/50 bg-amber-500/5">
+                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <AlertDescription className="text-amber-800 dark:text-amber-200">
+                        <span className="font-semibold">
+                          {existingDuplicates.length} audience
+                          {existingDuplicates.length !== 1 ? "s" : ""} already
+                          exist
+                        </span>
+                        <span className="text-xs ml-1 text-muted-foreground">
+                          — {existingDuplicates.join(", ")}
+                        </span>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* Import duplicates info */}
+                  {duplicates.length > 0 && (
+                    <Alert className="border-orange-500/50 bg-orange-500/5">
+                      <AlertTriangle className="h-4 w-4 text-orange-600" />
+                      <AlertDescription className="text-orange-800 dark:text-orange-200">
+                        <div className="flex items-center justify-between">
+                          <span>
+                            <span className="font-semibold">
+                              {duplicates.length} duplicate
+                              {duplicates.length !== 1 ? "s" : ""} in import
+                            </span>
+                            <span className="text-xs ml-1 text-muted-foreground">
+                              — {duplicates.join(", ")}
+                            </span>
+                          </span>
+                          <label className="flex items-center gap-1.5 text-xs cursor-pointer whitespace-nowrap ml-3">
+                            <input
+                              type="checkbox"
+                              checked={skipDuplicates}
+                              onChange={(e) =>
+                                setSkipDuplicates(e.target.checked)
+                              }
+                              className="h-3.5 w-3.5 rounded"
+                            />
+                            Skip duplicates
+                          </label>
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* Duplicate handling mode cards */}
+                  {existingDuplicates.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => {
+                          setUpdateMode("skip");
+                          setSelectedForUpdate(new Set());
+                        }}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 text-xs transition-all ${
+                          updateMode === "skip"
+                            ? "border-primary bg-primary/5 text-primary font-medium"
+                            : "border-muted hover:border-muted-foreground/30 text-muted-foreground"
+                        }`}
                       >
-                        Skip duplicates during import
-                      </label>
+                        <span className="text-lg">⏭️</span>
+                        <span>Skip existing</span>
+                      </button>
+                      <button
+                        onClick={() => setUpdateMode("update")}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 text-xs transition-all ${
+                          updateMode === "update"
+                            ? "border-blue-500 bg-blue-500/5 text-blue-600 dark:text-blue-400 font-medium"
+                            : "border-muted hover:border-muted-foreground/30 text-muted-foreground"
+                        }`}
+                      >
+                        <span className="text-lg">🔄</span>
+                        <span>Update query</span>
+                        <span className="text-[10px] opacity-70">
+                          Keeps rules
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setUpdateMode("import");
+                          setSelectedForUpdate(new Set());
+                        }}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 text-xs transition-all ${
+                          updateMode === "import"
+                            ? "border-green-500 bg-green-500/5 text-green-600 dark:text-green-400 font-medium"
+                            : "border-muted hover:border-muted-foreground/30 text-muted-foreground"
+                        }`}
+                      >
+                        <span className="text-lg">➕</span>
+                        <span>Import as new</span>
+                      </button>
                     </div>
-                  </AlertDescription>
-                </Alert>
+                  )}
+                </div>
               )}
 
               <label className="text-sm font-medium mb-2 block">
-                Preview ({preview.length} parsed, {itemsToImport.length} to
-                import):
+                Preview ({preview.length} parsed
+                {updateMode === "update" && selectedForUpdate.size > 0
+                  ? `, ${selectedForUpdate.size} to update`
+                  : `, ${itemsToImport.length} to import`}
+                ):
               </label>
 
               {/* Table View */}
@@ -251,6 +354,37 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
                   <table className="w-full text-sm">
                     <thead className="bg-muted sticky top-0">
                       <tr>
+                        {updateMode === "update" && (
+                          <th className="border-b px-3 py-2 text-left font-medium w-12">
+                            <input
+                              type="checkbox"
+                              checked={
+                                existingDuplicates.length > 0 &&
+                                selectedForUpdate.size ===
+                                  existingDuplicates.length
+                              }
+                              ref={(el) => {
+                                if (el) {
+                                  el.indeterminate =
+                                    selectedForUpdate.size > 0 &&
+                                    selectedForUpdate.size <
+                                      existingDuplicates.length;
+                                }
+                              }}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedForUpdate(
+                                    new Set(existingDuplicates),
+                                  );
+                                } else {
+                                  setSelectedForUpdate(new Set());
+                                }
+                              }}
+                              className="h-4 w-4 rounded"
+                              title="Select all for update"
+                            />
+                          </th>
+                        )}
                         <th className="border-b px-3 py-2 text-left font-medium">
                           Audience Name
                         </th>
@@ -274,7 +408,13 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
                           item.audienceName,
                         );
                         const isDupe = isExistingDupe || isImportDupe;
-                        const willBeSkipped = isDupe && skipDuplicates;
+                        const willBeSkipped =
+                          isDupe && skipDuplicates && isImportDupe;
+                        const canUpdate =
+                          isExistingDupe && updateMode === "update";
+                        const isSelected = selectedForUpdate.has(
+                          item.audienceName,
+                        );
 
                         return (
                           <tr
@@ -283,8 +423,32 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
                               willBeSkipped
                                 ? "opacity-50 bg-amber-50 dark:bg-amber-950/20"
                                 : ""
+                            } ${
+                              canUpdate && isSelected
+                                ? "bg-blue-50 dark:bg-blue-950/20"
+                                : ""
                             }`}
                           >
+                            {updateMode === "update" && (
+                              <td className="border-b px-3 py-2 text-center">
+                                {isExistingDupe && (
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      const newSet = new Set(selectedForUpdate);
+                                      if (e.target.checked) {
+                                        newSet.add(item.audienceName);
+                                      } else {
+                                        newSet.delete(item.audienceName);
+                                      }
+                                      setSelectedForUpdate(newSet);
+                                    }}
+                                    className="h-4 w-4 rounded"
+                                  />
+                                )}
+                              </td>
+                            )}
                             <td className="px-3 py-2 font-medium">
                               {item.audienceName}
                             </td>
@@ -298,8 +462,16 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
                             </td>
                             <td className="px-3 py-2">
                               {isExistingDupe && (
-                                <span className="text-xs px-2 py-1 bg-amber-200 dark:bg-amber-800 rounded text-amber-800 dark:text-amber-200">
-                                  Exists
+                                <span
+                                  className={`text-xs px-2 py-1 rounded ${
+                                    updateMode === "update" && isSelected
+                                      ? "bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200"
+                                      : "bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200"
+                                  }`}
+                                >
+                                  {updateMode === "update" && isSelected
+                                    ? "Update"
+                                    : "Exists"}
                                 </span>
                               )}
                               {isImportDupe && !isExistingDupe && (
@@ -331,18 +503,26 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
                 setCsvData("");
                 setPreview([]);
                 setError(null);
+                setSelectedForUpdate(new Set());
+                setUpdateMode("skip");
               }}
             >
               Cancel
             </Button>
             <Button
               onClick={handleImport}
-              disabled={itemsToImport.length === 0}
+              disabled={
+                updateMode === "update"
+                  ? selectedForUpdate.size === 0 && itemsToImport.length === 0
+                  : itemsToImport.length === 0
+              }
               className="gap-2"
             >
               <Upload className="h-4 w-4" />
-              Import {itemsToImport.length} Audience
-              {itemsToImport.length !== 1 ? "s" : ""}
+              {updateMode === "update" && selectedForUpdate.size > 0
+                ? `Update ${selectedForUpdate.size} & Import`
+                : `Import ${itemsToImport.length}`}{" "}
+              {itemsToImport.length !== 1 ? "Audiences" : "Audience"}
             </Button>
           </div>
         </div>

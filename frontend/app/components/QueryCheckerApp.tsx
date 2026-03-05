@@ -42,7 +42,34 @@ const QueryCheckerApp: React.FC = () => {
           />
           <ImportDialog
             existingNames={checkers.map((c) => c.name)}
-            onImport={(importedCheckers) => {
+            onImport={(importedCheckers, updates) => {
+              // Handle updates to existing checkers
+              if (updates) {
+                updates.forEach((update) => {
+                  const existingChecker = checkers.find(
+                    (c) =>
+                      c.name.toLowerCase().trim() ===
+                      update.name.toLowerCase().trim(),
+                  );
+                  if (existingChecker) {
+                    updateChecker(existingChecker.id, "query", update.query);
+                    updateChecker(
+                      existingChecker.id,
+                      "conditionInput",
+                      update.conditionInput,
+                    );
+                    updateChecker(
+                      existingChecker.id,
+                      "inputMode",
+                      update.inputMode,
+                    );
+                    // Reset the alignment report since query/condition changed
+                    updateChecker(existingChecker.id, "report", null);
+                  }
+                });
+              }
+
+              // Add new checkers
               importedCheckers.forEach((checkerData) => {
                 addChecker();
                 const newCheckerId =
@@ -52,7 +79,7 @@ const QueryCheckerApp: React.FC = () => {
                 updateChecker(
                   newCheckerId,
                   "conditionInput",
-                  checkerData.conditionInput
+                  checkerData.conditionInput,
                 );
                 updateChecker(newCheckerId, "inputMode", checkerData.inputMode);
               });

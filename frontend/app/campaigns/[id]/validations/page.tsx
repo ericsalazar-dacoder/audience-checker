@@ -137,6 +137,7 @@ export default function ValidationsPage() {
 
   // Local state for editing
   const [localCheckers, setLocalCheckers] = useState<Checker[]>([]);
+  const [originalCheckers, setOriginalCheckers] = useState<Checker[]>([]);
   const [checkerIdMap, setCheckerIdMap] = useState<Map<number, string>>(
     new Map(),
   );
@@ -171,6 +172,8 @@ export default function ValidationsPage() {
     if (apiCheckers.length > 0) {
       const converted = apiCheckers.map((c, i) => apiToLocalChecker(c, i));
       setLocalCheckers(converted);
+      // Store a deep copy of original data for cancel functionality
+      setOriginalCheckers(JSON.parse(JSON.stringify(converted)));
 
       const idMap = new Map<number, string>();
       apiCheckers.forEach((c, i) => idMap.set(i, c.id));
@@ -321,7 +324,37 @@ export default function ValidationsPage() {
       conditionInput: string;
       inputMode: string;
     }>,
+    updates?: Array<{
+      name: string;
+      query: string;
+      conditionInput: string;
+      inputMode: string;
+    }>,
   ) => {
+    // Handle updates to existing checkers
+    if (updates) {
+      updates.forEach((update) => {
+        const existingChecker = localCheckers.find(
+          (c) =>
+            c.name.toLowerCase().trim() === update.name.toLowerCase().trim(),
+        );
+        if (existingChecker) {
+          updateLocalChecker(existingChecker.id, "query", update.query);
+          updateLocalChecker(
+            existingChecker.id,
+            "conditionInput",
+            update.conditionInput,
+          );
+          updateLocalChecker(
+            existingChecker.id,
+            "inputMode",
+            update.inputMode as "query" | "condition",
+          );
+          setPendingChanges((prev) => new Set(prev).add(existingChecker.id));
+        }
+      });
+    }
+
     let currentId = nextLocalId;
     const newCheckers: Checker[] = [];
 
@@ -402,6 +435,30 @@ export default function ValidationsPage() {
       });
     } finally {
       setSavingChecker(null);
+    }
+  };
+
+  // Cancel changes and restore original data
+  const handleCancelChecker = (localId: number) => {
+    const original = originalCheckers.find((c) => c.id === localId);
+    if (original) {
+      setLocalCheckers((prev) =>
+        prev.map((c) =>
+          c.id === localId ? JSON.parse(JSON.stringify(original)) : c,
+        ),
+      );
+      setPendingChanges((prev) => {
+        const next = new Set(prev);
+        next.delete(localId);
+        return next;
+      });
+
+      const checker = localCheckers.find((c) => c.id === localId);
+      toast({
+        title: "Changes discarded",
+        description: `All changes to "${checker?.name}" have been reverted.`,
+        variant: "default",
+      });
     }
   };
 
@@ -525,16 +582,12 @@ export default function ValidationsPage() {
         <div className="space-y-4 max-w-6xl">
           {localCheckers.map((checker) => {
             const apiId = checkerIdMap.get(checker.id);
-            const hasChanges = pendingChanges.has(checker.id);
-            const isSaving = savingChecker === checker.id;
 
             return (
               <CheckerCard
                 key={checker.id}
                 checker={checker}
                 canDelete={true}
-                hasChanges={hasChanges}
-                isSaving={isSaving}
                 onNameChange={(value) =>
                   updateLocalChecker(checker.id, "name", value)
                 }
@@ -564,7 +617,7 @@ export default function ValidationsPage() {
                 onReportUpdate={(report) => {
                   updateLocalChecker(checker.id, "report", report);
                 }}
-                onSave={() => handleSaveChecker(checker.id)}
+                onCancel={() => handleCancelChecker(checker.id)}
               />
             );
           })}

@@ -1,98 +1,131 @@
-dpoint                             | Description                     |
-| -------- | ------------------------------------ | ------------------------------- |
-| `GET`    | `/api/checkers/campaign/:campaignId` | Get all checkers for a campaign |
-| `GET`    | `/api/checkers/:id`                  | Get checker by ID with rules    |
-| `POST`   | `/api/checkers`                      | Create new checker              |
-| `PUT`    | `/api/checkers/:id`                  | Update checker                  |
-| `DELETE` | `/api/checkers/:id`                  | Delete checker                  |
+import "dotenv/config";
+import { v4 as uuidv4 } from "uuid";
+import {
+  initializeDatabase,
+  closeDatabase,
+  getDatabase,
+  campaigns,
+  audienceCheckers,
+  rules,
+} from "../src/db";
+import { logger } from "../src/utils/helpers";
 
-### Rules
+// Seed data constants
+const SEED_CAMPAIGNS = [
+  {
+    id: uuidv4(),
+    name: "Play Journey Campaign",
+    description: "Campaign for play journey audience",
+    campaignType: "play",
+    activeFlag: true,
+    lockedFlag: false,
+  },
+  {
+    id: uuidv4(),
+    name: "Comeback Journey Campaign",
+    description: "Campaign for comeback journey audience",
+    campaignType: "comeback",
+    activeFlag: true,
+    lockedFlag: false,
+  },
+] as const;
 
-| Method   | Endpoint                         | Description         |
-| -------- | -------------------------------- | ------------------- |
-| `POST`   | `/api/checkers/:checkerId/rules` | Add rule to checker |
-| `DELETE` | `/api/checkers/rules/:ruleId`    | Delete rule         |
+async function clearDatabase(
+  db: ReturnType<typeof getDatabase>,
+): Promise<void> {
+  logger.info("Clearing existing data...");
+  await db.delete(rules);
+  await db.delete(audienceCheckers);
+  await db.delete(campaigns);
+}
 
-For detailed API documentation, refer to the backend source code.
+async function seedCampaigns(
+  db: ReturnType<typeof getDatabase>,
+): Promise<string[]> {
+  const campaignIds = SEED_CAMPAIGNS.map((c) => c.id);
 
-## Troubleshooting
+  await db.insert(campaigns).values(
+    SEED_CAMPAIGNS.map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      campaignType: c.campaignType,
+      activeFlag: c.activeFlag,
+      lockedFlag: c.lockedFlag,
+    })),
+  );
 
-### Port Already in Use
+  logger.info("✅ Campaigns created", { count: campaignIds.length });
+  return campaignIds;
+}
 
-If port 3000 or 5000 is already in use:
+async function seedCheckers(
+  db: ReturnType<typeof getDatabase>,
+  campaignId: string,
+): Promise<string[]> {
+  const checkerData = [
+    { id: uuidv4(), name: "Mobile Users Checker" },
+    { id: uuidv4(), name: "High Value Users Checker" },
+  ];
 
-```bash
-# Frontend (change port)
-npm run dev -- -p 3001
+  await db.insert(audienceCheckers).values(
+    checkerData.map((c) => ({
+      id: c.id,
+      campaignId,
+      name: c.name,
+      rules: JSON.stringify([]),
+      status: "active" as const,
+      alignmentStatus: null,
+      lastChecked: null,
+    })),
+  );
 
-# Backend (update PORT in .env)
-PORT=5001 npm run dev
-```
+  logger.info("✅ Checkers created", { count: checkerData.length });
+  return checkerData.map((c) => c.id);
+}
 
-### Database Connection Error
+async function seedRules(
+  db: ReturnType<typeof getDatabase>,
+  checkerId: string,
+): Promise<void> {
+  const ruleData = [
+    { field: "device_type", operator: "equals", value: "mobile" },
+    { field: "active_status", operator: "equals", value: "active" },
+  ];
 
-1. Verify MySQL is running
-2. Check database credentials in `.env`
-3. Ensure the database exists:
-   ```bash
-   mysql -u root -p
-   CREATE DATABASE audience_checker;
-   ```
+  await db.insert(rules).values(
+    ruleData.map((r) => ({
+      id: uuidv4(),
+      checkerId,
+      ...r,
+    })),
+  );
 
-### Dependencies Installation Issues
+  logger.info("✅ Rules created", { count: ruleData.length });
+}
 
-Clear cache and reinstall:
+async function seedDatabase(): Promise<void> {
+  try {
+    logger.info("Starting database seeding...");
 
-```bash
-rm -rf node_modules package-lock.json
-npm install
-```
+    await initializeDatabase();
+    const db = getDatabase();
 
-## Development Workflow
+    // Clear existing data for idempotent seeding
+    await clearDatabase(db);
 
-1. Create a new branch for your feature
-2. Make changes in frontend/backend directories
-3. Test locally with `npm run dev`
-4. Build and verify with `npm run build`
-5. Commit changes with clear messages
-6. Push to repository and create a pull request
+    // Seed in order: campaigns -> checkers -> rules
+    const campaignIds = await seedCampaigns(db);
+    const checkerIds = await seedCheckers(db, campaignIds[0]);
+    await seedRules(db, checkerIds[0]);
 
-## Environment Variables Reference
+    logger.info("🎉 Database seeded successfully");
+  } catch (error) {
+    logger.error("❌ Error seeding database", error);
+    process.exit(1);
+  } finally {
+    await closeDatabase();
+  }
+}
 
-### Backend (.env)
-
-| Variable      | Description           | Example                 |
-| ------------- | --------------------- | ----------------------- |
-| `PORT`        | API server port       | `5000`                  |
-| `NODE_ENV`    | Environment mode      | `development`           |
-| `DB_HOST`     | Database host         | `localhost`             |
-| `DB_PORT`     | Database port         | `3306`                  |
-| `DB_USER`     | Database user         | `root`                  |
-| `DB_PASSWORD` | Database password     | `password`              |
-| `DB_NAME`     | Database name         | `audience_checker`      |
-| `CORS_ORIGIN` | Frontend URL for CORS | `http://localhost:3000` |
-
-### Frontend (.env.local)
-
-| Variable              | Description     | Example                 |
-| --------------------- | --------------- | ----------------------- |
-| `NEXT_PUBLIC_API_URL` | Backend API URL | `http://localhost:5000` |
-
-## Performance Tips
-
-- Use `npm ci` instead of `npm install` in production for deterministic builds
-- Enable caching in CI/CD pipelines
-- Use database indexes for frequently queried columns
-- Consider implementing pagination for large result sets
-
-## Support
-
-For issues and questions:
-
-1. Check the project documentation
-2. Review existing GitHub issues
-3. Create a new issue with detailed information
-
-## License
-
-ISC
+seedDatabase();

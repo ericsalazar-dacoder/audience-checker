@@ -11,20 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  ChevronDown,
-  ChevronUp,
-  Trash2,
-  Wand2,
-  Save,
-  Loader2,
-} from "lucide-react";
+import { ChevronDown, ChevronUp, Trash2, Wand2 } from "lucide-react";
 
 interface CheckerCardProps {
   checker: Checker;
   canDelete: boolean;
-  hasChanges?: boolean;
-  isSaving?: boolean;
   onNameChange: (value: string) => void;
   onDelete: () => void;
   onToggleExpanded: () => void;
@@ -34,20 +25,18 @@ interface CheckerCardProps {
   onRuleUpdate: (
     ruleIndex: number,
     field: "table" | "column" | "condition",
-    value: string
+    value: string,
   ) => void;
   onRuleAdd: () => void;
   onRuleRemove: (ruleIndex: number) => void;
   onPasteBulkRules: (pastedText: string) => void;
   onReportUpdate: (report: AlignmentReport) => void;
-  onSave?: () => void;
+  onCancel?: () => void;
 }
 
 export const CheckerCard: React.FC<CheckerCardProps> = ({
   checker,
   canDelete,
-  hasChanges = false,
-  isSaving = false,
   onNameChange,
   onDelete,
   onToggleExpanded,
@@ -59,7 +48,7 @@ export const CheckerCard: React.FC<CheckerCardProps> = ({
   onRuleRemove,
   onPasteBulkRules,
   onReportUpdate,
-  onSave,
+  onCancel,
 }) => {
   const handleCheckAlignment = () => {
     if (!checker.businessRules || checker.businessRules.length === 0) {
@@ -109,21 +98,33 @@ export const CheckerCard: React.FC<CheckerCardProps> = ({
             className="text-lg font-semibold border-0 px-10 focus-visible:ring-0"
           />
         </div>
-        <div className="flex gap-2">
-          {onSave && hasChanges && (
-            <Button
-              size="sm"
-              onClick={onSave}
-              disabled={isSaving}
-              className="gap-2"
-            >
-              {isSaving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              Save
-            </Button>
+        <div className="flex items-center gap-2">
+          {/* Show alignment result & percentage when collapsed */}
+          {!checker.expanded && checker.report && (
+            <div className="flex items-center gap-2 mr-2 text-xs">
+              <span className="text-green-600 dark:text-green-400 font-medium">
+                {checker.report.matched.length} matched
+              </span>
+              <span className="text-muted-foreground">•</span>
+              <span className="text-red-600 dark:text-red-400 font-medium">
+                {checker.report.misaligned.length} issues
+              </span>
+              <span className="text-muted-foreground">•</span>
+              <span className="text-muted-foreground">
+                {checker.report.totalConditions} total
+              </span>
+              <span
+                className={`text-sm font-bold px-2 py-0.5 rounded ${
+                  checker.report.alignmentPercentage >= 80
+                    ? "text-green-600 dark:text-green-400 bg-green-500/10"
+                    : checker.report.alignmentPercentage >= 50
+                      ? "text-amber-600 dark:text-amber-400 bg-amber-500/10"
+                      : "text-red-600 dark:text-red-400 bg-red-500/10"
+                }`}
+              >
+                {checker.report.alignmentPercentage}%
+              </span>
+            </div>
           )}
           <Button
             variant="outline"
@@ -221,6 +222,7 @@ export const CheckerCard: React.FC<CheckerCardProps> = ({
             onRuleRemove={onRuleRemove}
             onPasteBulkRules={onPasteBulkRules}
             onCheckAlignment={handleCheckAlignment}
+            onCancel={onCancel}
           />
 
           <AlignmentReportPanel report={checker.report} />

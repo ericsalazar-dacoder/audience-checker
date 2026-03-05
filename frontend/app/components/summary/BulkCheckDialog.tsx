@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { Checker, AlignmentReport } from "@core/types";
 import { generateAlignmentReport } from "@utils/queryAnalyzer";
+import { useCampaignStore } from "@/app/store/campaignStore";
+import { useAudienceCheckerStore } from "@/app/store/audienceCheckerStore";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +14,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -21,7 +30,9 @@ import {
   BarChart3,
   ChevronDown,
   ChevronUp,
-  Download,
+  Save,
+  Loader2,
+  Check,
 } from "lucide-react";
 
 interface CheckerSummary {
@@ -54,6 +65,63 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
   const [isChecking, setIsChecking] = useState(false);
   const [summary, setSummary] = useState<BulkCheckSummary | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const {
+    campaigns,
+    fetchCampaigns,
+    isLoading: campaignsLoading,
+  } = useCampaignStore();
+  const { createChecker } = useAudienceCheckerStore();
+
+  useEffect(() => {
+    if (open && campaigns.length === 0) {
+      fetchCampaigns();
+    }
+  }, [open, campaigns.length, fetchCampaigns]);
+
+  // Track a snapshot of checker queries/conditions to detect external changes
+  const checkersFingerprint = checkers
+    .map((c) => `${c.id}:${c.query}:${c.conditionInput}`)
+    .join("|");
+  const [lastFingerprint, setLastFingerprint] = useState(checkersFingerprint);
+
+  // Auto-reset bulk check results when checkers change externally (e.g. after import)
+  // but NOT when the dialog itself updates reports via onReportsUpdate
+  useEffect(() => {
+    if (checkersFingerprint !== lastFingerprint) {
+      setLastFingerprint(checkersFingerprint);
+      if (!open) {
+        setSummary(null);
+        setExpandedItems(new Set());
+        setSelectedCampaignId("");
+        setSaveSuccess(false);
+        setSaveError(null);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkersFingerprint]);
+
+  // Ref to allow calling runBulkCheck from the open handler timeout
+  const runBulkCheckRef = React.useRef(() => {});
+
+  // Auto-run bulk check when dialog opens
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (isOpen) {
+      setSummary(null);
+      setExpandedItems(new Set());
+      setSelectedCampaignId("");
+      setSaveSuccess(false);
+      setSaveError(null);
+      setTimeout(() => {
+        runBulkCheckRef.current();
+      }, 100);
+    }
+  };
 
   const toggleExpanded = (id: number) => {
     setExpandedItems((prev) => {
@@ -67,53 +135,81 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
     });
   };
 
-  const handleSaveAllResults = () => {
-    if (!summary) return;
+  const handleSaveAllToCampaign = async () => {
+    if (!summary || !selectedCampaignId) return;
 
-    // Convert results to CSV format
-    const headers = [
-      "Checker Name",
-      "Status",
-      "Alignment %",
-      "Matched",
-      "Issues",
-      "Total Conditions",
-    ];
-    const rows = summary.checkers.map((item) => [
-      item.name,
-      item.error ? "Error" : item.report ? "Checked" : "Skipped",
-      item.report?.alignmentPercentage?.toString() || "N/A",
-      item.report?.matched.length?.toString() || "0",
-      item.report?.misaligned.length?.toString() || "0",
-      item.report?.totalConditions?.toString() || "0",
-    ]);
+    setIsSaving(true);
+    setSaveSuccess(false);
+    setSaveError(null);
 
-    // Create CSV content
-    const csvContent = [
-      headers.join("\t"),
-      ...rows.map((row) => row.join("\t")),
-      "",
-      "Summary",
-      `Total,${summary.total}`,
-      `Healthy,${summary.healthy}`,
-      `Warnings,${summary.warning}`,
-      `Failed,${summary.failed}`,
-      `Average Alignment %,${summary.averageAlignment}`,
-    ].join("\n");
+    try {
+      // Get all checkers that have valid reports
+      const checkersToSave = summary.checkers.filter(
+        (item) => item.report && !item.error,
+      );
 
-    // Create and download file
-    const element = document.createElement("a");
-    element.setAttribute(
-      "href",
-      "data:text/plain;charset=utf-8," + encodeURIComponent(csvContent)
-    );
-    element.setAttribute("download", `bulk-check-results-${Date.now()}.tsv`);
-    element.style.display = "none";
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+      // Find the original checker data for each summary item
+      for (const item of checkersToSave) {
+        const originalChecker = checkers.find((c) => c.id === item.id);
+        if (!originalChecker || !item.report) continue;
 
-    alert("Results saved successfully!");
+        // Convert local rules to API format
+        const rulesData = originalChecker.businessRules
+          .filter((rule) => rule.table && rule.column)
+          .map((rule) => ({
+            field: `${rule.table}.${rule.column}`,
+            operator: "condition",
+            value: rule.condition,
+          }));
+
+        // Get the query text
+        const queryText =
+          originalChecker.inputMode === "query"
+            ? originalChecker.query
+            : originalChecker.conditionInput
+              ? `WHERE ${originalChecker.conditionInput}`
+              : undefined;
+
+        // Convert alignment report to API format
+        const alignmentReportData = {
+          alignmentPercentage: item.report.alignmentPercentage,
+          totalConditions: item.report.totalConditions,
+          matched: item.report.matched,
+          unmatched: item.report.misaligned.map((m) => ({
+            table: "",
+            column: m.condition,
+            condition: m.issues.join(", "),
+          })),
+          extra: item.report.undefined.map((u) => {
+            const parts = u.split(".");
+            return {
+              table: parts[0] || "",
+              column: parts[1] || u,
+            };
+          }),
+        };
+
+        await createChecker({
+          campaignId: selectedCampaignId,
+          name: originalChecker.name,
+          query: queryText,
+          rules: rulesData as any,
+          alignmentReport: alignmentReportData,
+        });
+      }
+
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+      }, 3000);
+    } catch (error) {
+      console.error("Failed to save checkers:", error);
+      setSaveError(
+        error instanceof Error ? error.message : "Failed to save checkers",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const runBulkCheck = () => {
@@ -243,6 +339,8 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
     onReportsUpdate(reports);
   };
 
+  runBulkCheckRef.current = runBulkCheck;
+
   const getStatusColor = (report: AlignmentReport | null, error?: string) => {
     if (error || !report) return "text-red-600 dark:text-red-400";
     if (report.alignmentPercentage >= 80)
@@ -263,7 +361,7 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" className="gap-2">
           <BarChart3 className="h-4 w-4" />
@@ -284,19 +382,12 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
 
         <div className="space-y-6">
           {!summary && (
-            <div className="text-center py-8">
-              <p className="text-muted-foreground mb-4">
-                This will run alignment checks on all checkers and show a
-                summary of results.
+            <div className="text-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground mb-3" />
+              <p className="text-muted-foreground text-sm">
+                Running alignment checks on {checkers.length} checker
+                {checkers.length !== 1 ? "s" : ""}...
               </p>
-              <Button
-                onClick={runBulkCheck}
-                disabled={isChecking || checkers.length === 0}
-                className="gap-2"
-              >
-                <PlayCircle className="h-4 w-4" />
-                {isChecking ? "Checking..." : "Run Bulk Check"}
-              </Button>
             </div>
           )}
 
@@ -379,6 +470,19 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
                           <span className="font-medium">{item.name}</span>
                         </div>
                         <div className="flex items-center gap-3">
+                          {item.report && !expandedItems.has(item.id) && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="text-green-600 dark:text-green-400">
+                                {item.report.matched.length} matched
+                              </span>
+                              <span>•</span>
+                              <span className="text-red-600 dark:text-red-400">
+                                {item.report.misaligned.length} issues
+                              </span>
+                              <span>•</span>
+                              <span>{item.report.totalConditions} total</span>
+                            </div>
+                          )}
                           {item.report && (
                             <span
                               className={`text-sm font-semibold ${getStatusColor(
@@ -471,6 +575,69 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
                 </div>
               </div>
 
+              {/* Save All to Campaign */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    Save All Validations to Campaign
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Save all{" "}
+                    {
+                      summary.checkers.filter((c) => c.report && !c.error)
+                        .length
+                    }{" "}
+                    successful validation(s) to a campaign at once.
+                  </p>
+                  {campaignsLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading campaigns...
+                    </div>
+                  ) : campaigns.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No campaigns found. Create a campaign first.
+                    </p>
+                  ) : (
+                    <Select
+                      value={selectedCampaignId}
+                      onValueChange={setSelectedCampaignId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a campaign" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {campaigns.map((campaign) => (
+                          <SelectItem key={campaign.id} value={campaign.id}>
+                            {campaign.name}
+                            {campaign.campaignType && (
+                              <span className="text-muted-foreground ml-2">
+                                ({campaign.campaignType})
+                              </span>
+                            )}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {saveError && (
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                      {saveError}
+                    </p>
+                  )}
+
+                  {saveSuccess && (
+                    <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <Check className="h-4 w-4" />
+                      All validations saved successfully!
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Actions */}
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button
@@ -478,19 +645,47 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
                   onClick={() => {
                     setSummary(null);
                     setExpandedItems(new Set());
+                    setSelectedCampaignId("");
+                    setSaveSuccess(false);
+                    setSaveError(null);
+                    setTimeout(() => runBulkCheck(), 100);
                   }}
-                >
-                  Reset
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleSaveAllResults}
                   className="gap-2"
                 >
-                  <Download className="h-4 w-4" />
-                  Save All Results
+                  <PlayCircle className="h-4 w-4" />
+                  Re-run Check
                 </Button>
-                <Button onClick={() => setOpen(false)}>Close</Button>
+                <Button
+                  onClick={handleSaveAllToCampaign}
+                  disabled={
+                    !selectedCampaignId ||
+                    isSaving ||
+                    campaigns.length === 0 ||
+                    summary.checkers.filter((c) => c.report && !c.error)
+                      .length === 0
+                  }
+                  className="gap-2"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : saveSuccess ? (
+                    <>
+                      <Check className="h-4 w-4" />
+                      Saved!
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save All to Campaign
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" onClick={() => setOpen(false)}>
+                  Close
+                </Button>
               </div>
             </>
           )}

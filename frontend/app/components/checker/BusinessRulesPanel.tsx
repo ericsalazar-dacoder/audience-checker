@@ -14,12 +14,13 @@ interface BusinessRulesPanelProps {
   onRuleUpdate: (
     ruleIndex: number,
     field: "table" | "column" | "condition",
-    value: string
+    value: string,
   ) => void;
   onRuleAdd: () => void;
   onRuleRemove: (ruleIndex: number) => void;
   onPasteBulkRules: (pastedText: string) => void;
   onCheckAlignment: () => void;
+  onCancel?: () => void;
 }
 
 export const BusinessRulesPanel: React.FC<BusinessRulesPanelProps> = ({
@@ -30,6 +31,7 @@ export const BusinessRulesPanel: React.FC<BusinessRulesPanelProps> = ({
   onRuleRemove,
   onPasteBulkRules,
   onCheckAlignment,
+  onCancel,
 }) => {
   const handleSaveAllRules = () => {
     if (businessRules.length === 0) {
@@ -55,7 +57,7 @@ export const BusinessRulesPanel: React.FC<BusinessRulesPanelProps> = ({
     const element = document.createElement("a");
     element.setAttribute(
       "href",
-      "data:text/plain;charset=utf-8," + encodeURIComponent(csvContent)
+      "data:text/plain;charset=utf-8," + encodeURIComponent(csvContent),
     );
     element.setAttribute("download", `business-rules-${Date.now()}.tsv`);
     element.style.display = "none";
@@ -170,6 +172,16 @@ BB_POSTPAID	brand_type_code	WIRELINE"
           <Button onClick={onCheckAlignment} size="sm" className="gap-2">
             Check Alignment
           </Button>
+          {onCancel && (
+            <Button
+              onClick={onCancel}
+              size="sm"
+              variant="outline"
+              className="gap-2"
+            >
+              Cancel
+            </Button>
+          )}
           <Button
             onClick={handleSaveAllRules}
             size="sm"
