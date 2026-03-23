@@ -6,7 +6,7 @@ import { Card, CardContent, CardTitle, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Download } from "lucide-react";
+import { Trash2, Plus, Download, Save, Loader2 } from "lucide-react";
 
 interface BusinessRulesPanelProps {
   checkerId: number;
@@ -20,7 +20,9 @@ interface BusinessRulesPanelProps {
   onRuleRemove: (ruleIndex: number) => void;
   onPasteBulkRules: (pastedText: string) => void;
   onCheckAlignment: () => void;
+  onSave?: () => void;
   onCancel?: () => void;
+  isSaving?: boolean;
 }
 
 export const BusinessRulesPanel: React.FC<BusinessRulesPanelProps> = ({
@@ -31,9 +33,11 @@ export const BusinessRulesPanel: React.FC<BusinessRulesPanelProps> = ({
   onRuleRemove,
   onPasteBulkRules,
   onCheckAlignment,
+  onSave,
   onCancel,
+  isSaving,
 }) => {
-  const handleSaveAllRules = () => {
+  const handleExportRules = () => {
     if (businessRules.length === 0) {
       alert("No business rules to save");
       return;
@@ -65,7 +69,7 @@ export const BusinessRulesPanel: React.FC<BusinessRulesPanelProps> = ({
     element.click();
     document.body.removeChild(element);
 
-    alert("Business rules saved successfully!");
+    alert("Business rules exported successfully!");
   };
 
   return (
@@ -182,14 +186,29 @@ BB_POSTPAID	brand_type_code	WIRELINE"
               Cancel
             </Button>
           )}
+          {onSave && (
+            <Button
+              onClick={onSave}
+              size="sm"
+              className="gap-2"
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {isSaving ? "Saving..." : "Save"}
+            </Button>
+          )}
           <Button
-            onClick={handleSaveAllRules}
+            onClick={handleExportRules}
             size="sm"
             variant="outline"
             className="gap-2 ml-auto"
           >
             <Download className="h-4 w-4" />
-            Save All Rules
+            Export Rules
           </Button>
         </div>
       </CardContent>

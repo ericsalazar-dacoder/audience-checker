@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useCampaignStore } from "@/app/store/campaignStore";
@@ -23,7 +23,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Loader2, ClipboardCheck, ChevronRight } from "lucide-react";
+import {
+  Plus,
+  Loader2,
+  ClipboardCheck,
+  ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
+  ArrowUpDown,
+  Search,
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // Convert API checker to local Checker format
 function apiToLocalChecker(
@@ -151,6 +169,17 @@ export default function ValidationsPage() {
   const [nextLocalId, setNextLocalId] = useState(1000);
   const [initialSyncDone, setInitialSyncDone] = useState(false);
   const [hasAttemptedFetch, setHasAttemptedFetch] = useState(false);
+  const [sortBy, setSortBy] = useState<
+    | "default"
+    | "name-asc"
+    | "name-desc"
+    | "alignment-asc"
+    | "alignment-desc"
+    | "status"
+  >("default");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   // Load campaign and checkers
   useEffect(() => {
@@ -421,6 +450,18 @@ export default function ValidationsPage() {
         return next;
       });
 
+      // Update originalCheckers to reflect saved state so cancel won't revert past this save
+      setOriginalCheckers((prev) => {
+        const savedChecker = localCheckers.find((c) => c.id === localId);
+        if (!savedChecker) return prev;
+        const copy = JSON.parse(JSON.stringify(savedChecker));
+        const exists = prev.find((c) => c.id === localId);
+        if (exists) {
+          return prev.map((c) => (c.id === localId ? copy : c));
+        }
+        return [...prev, copy];
+      });
+
       toast({
         title: "Saved successfully",
         description: `Validation "${checker.name}" has been saved.`,
@@ -490,6 +531,65 @@ export default function ValidationsPage() {
     }
   };
 
+  // Filtered checkers (search)
+  const filteredCheckers = useMemo(() => {
+    if (!searchQuery.trim()) return localCheckers;
+    const query = searchQuery.toLowerCase().trim();
+    return localCheckers.filter(
+      (c) =>
+        c.name.toLowerCase().includes(query) ||
+        c.query.toLowerCase().includes(query) ||
+        c.conditionInput.toLowerCase().includes(query),
+    );
+  }, [localCheckers, searchQuery]);
+
+  // Sorted checkers
+  const sortedCheckers = useMemo(() => {
+    if (sortBy === "default") return filteredCheckers;
+
+    return [...filteredCheckers].sort((a, b) => {
+      switch (sortBy) {
+        case "name-asc":
+          return a.name.localeCompare(b.name);
+        case "name-desc":
+          return b.name.localeCompare(a.name);
+        case "alignment-asc":
+          return (
+            (a.report?.alignmentPercentage ?? -1) -
+            (b.report?.alignmentPercentage ?? -1)
+          );
+        case "alignment-desc":
+          return (
+            (b.report?.alignmentPercentage ?? -1) -
+            (a.report?.alignmentPercentage ?? -1)
+          );
+        case "status": {
+          const aHasReport = a.report ? 0 : 1;
+          const bHasReport = b.report ? 0 : 1;
+          if (aHasReport !== bHasReport) return aHasReport - bHasReport;
+          return (
+            (b.report?.alignmentPercentage ?? -1) -
+            (a.report?.alignmentPercentage ?? -1)
+          );
+        }
+        default:
+          return 0;
+      }
+    });
+  }, [filteredCheckers, sortBy]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(sortedCheckers.length / pageSize));
+  const paginatedCheckers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedCheckers.slice(start, start + pageSize);
+  }, [sortedCheckers, currentPage, pageSize]);
+
+  // Reset to page 1 when search or sort changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, sortBy]);
+
   const isLoading = campaignLoading || checkersLoading;
 
   if (isLoading && !selectedCampaign) {
@@ -537,10 +637,13 @@ export default function ValidationsPage() {
             {selectedCampaign?.name || "this campaign"}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <BulkCheckDialog
             checkers={localCheckers}
             onReportsUpdate={handleBulkReportsUpdate}
+            campaignId={campaignId}
+            checkerIdMap={checkerIdMap}
+            autoSave
           />
           <ImportDialog
             existingNames={localCheckers.map((c) => c.name)}
@@ -552,6 +655,44 @@ export default function ValidationsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Search & Sort Bar */}
+      {localCheckers.length > 0 && (
+        <div className="flex gap-3 items-center max-w-6xl">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search validations by name or query..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          {localCheckers.length > 1 && (
+            <Select
+              value={sortBy}
+              onValueChange={(value) => setSortBy(value as typeof sortBy)}
+            >
+              <SelectTrigger className="w-[200px] gap-2">
+                <ArrowUpDown className="h-4 w-4" />
+                <SelectValue placeholder="Sort by..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default Order</SelectItem>
+                <SelectItem value="name-asc">Name (A → Z)</SelectItem>
+                <SelectItem value="name-desc">Name (Z → A)</SelectItem>
+                <SelectItem value="alignment-desc">
+                  Alignment (High → Low)
+                </SelectItem>
+                <SelectItem value="alignment-asc">
+                  Alignment (Low → High)
+                </SelectItem>
+                <SelectItem value="status">Status (Checked First)</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      )}
 
       {/* Error Display */}
       {error && (
@@ -578,50 +719,134 @@ export default function ValidationsPage() {
             </Button>
           </div>
         </div>
-      ) : (
-        <div className="space-y-4 max-w-6xl">
-          {localCheckers.map((checker) => {
-            const apiId = checkerIdMap.get(checker.id);
-
-            return (
-              <CheckerCard
-                key={checker.id}
-                checker={checker}
-                canDelete={true}
-                onNameChange={(value) =>
-                  updateLocalChecker(checker.id, "name", value)
-                }
-                onDelete={() =>
-                  setDeleteConfirm({
-                    localId: checker.id,
-                    apiId: apiId || "",
-                    name: checker.name,
-                  })
-                }
-                onToggleExpanded={() => toggleExpanded(checker.id)}
-                onInputModeChange={(mode) =>
-                  updateLocalChecker(checker.id, "inputMode", mode)
-                }
-                onQueryChange={(value) =>
-                  updateLocalChecker(checker.id, "query", value)
-                }
-                onConditionChange={(value) =>
-                  updateLocalChecker(checker.id, "conditionInput", value)
-                }
-                onRuleUpdate={(ruleIndex, field, value) =>
-                  updateRule(checker.id, ruleIndex, field, value)
-                }
-                onRuleAdd={() => addRule(checker.id)}
-                onRuleRemove={(ruleIndex) => removeRule(checker.id, ruleIndex)}
-                onPasteBulkRules={(text) => pasteBulkRules(checker.id, text)}
-                onReportUpdate={(report) => {
-                  updateLocalChecker(checker.id, "report", report);
-                }}
-                onCancel={() => handleCancelChecker(checker.id)}
-              />
-            );
-          })}
+      ) : sortedCheckers.length === 0 && searchQuery.trim() ? (
+        <div className="text-center py-12 max-w-6xl">
+          <Search className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+          <p className="text-muted-foreground mb-2">
+            No validations match &quot;{searchQuery}&quot;
+          </p>
+          <Button
+            variant="ghost"
+            onClick={() => setSearchQuery("")}
+            className="text-sm"
+          >
+            Clear search
+          </Button>
         </div>
+      ) : (
+        <>
+          <div className="space-y-4 max-w-6xl">
+            {paginatedCheckers.map((checker) => {
+              const apiId = checkerIdMap.get(checker.id);
+
+              return (
+                <CheckerCard
+                  key={checker.id}
+                  checker={checker}
+                  canDelete={true}
+                  onNameChange={(value) =>
+                    updateLocalChecker(checker.id, "name", value)
+                  }
+                  onDelete={() =>
+                    setDeleteConfirm({
+                      localId: checker.id,
+                      apiId: apiId || "",
+                      name: checker.name,
+                    })
+                  }
+                  onToggleExpanded={() => toggleExpanded(checker.id)}
+                  onInputModeChange={(mode) =>
+                    updateLocalChecker(checker.id, "inputMode", mode)
+                  }
+                  onQueryChange={(value) =>
+                    updateLocalChecker(checker.id, "query", value)
+                  }
+                  onConditionChange={(value) =>
+                    updateLocalChecker(checker.id, "conditionInput", value)
+                  }
+                  onRuleUpdate={(ruleIndex, field, value) =>
+                    updateRule(checker.id, ruleIndex, field, value)
+                  }
+                  onRuleAdd={() => addRule(checker.id)}
+                  onRuleRemove={(ruleIndex) =>
+                    removeRule(checker.id, ruleIndex)
+                  }
+                  onPasteBulkRules={(text) => pasteBulkRules(checker.id, text)}
+                  onReportUpdate={(report) => {
+                    updateLocalChecker(checker.id, "report", report);
+                  }}
+                  onSave={() => handleSaveChecker(checker.id)}
+                  onCancel={() => handleCancelChecker(checker.id)}
+                  isSaving={savingChecker === checker.id}
+                />
+              );
+            })}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between max-w-6xl">
+              <p className="text-sm text-muted-foreground">
+                Showing{" "}
+                {Math.min(
+                  (currentPage - 1) * pageSize + 1,
+                  sortedCheckers.length,
+                )}
+                –{Math.min(currentPage * pageSize, sortedCheckers.length)} of{" "}
+                {sortedCheckers.length} validation
+                {sortedCheckers.length !== 1 ? "s" : ""}
+                {searchQuery.trim() && (
+                  <span className="ml-1">
+                    (filtered from {localCheckers.length})
+                  </span>
+                )}
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronsLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="px-3 text-sm font-medium">
+                  {currentPage} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronsRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Delete Confirmation Dialog */}

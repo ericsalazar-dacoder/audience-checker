@@ -30,6 +30,10 @@ import {
   BarChart3,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Save,
   Loader2,
   Check,
@@ -55,11 +59,20 @@ interface BulkCheckSummary {
 interface BulkCheckDialogProps {
   checkers: Checker[];
   onReportsUpdate: (reports: Map<number, AlignmentReport>) => void;
+  /** When provided, the dialog is in "campaign context" mode — saves update existing records instead of creating new ones */
+  campaignId?: string;
+  /** Map of local checker ID → API checker ID for existing records */
+  checkerIdMap?: Map<number, string>;
+  /** When true, auto-save results after bulk check completes (only works with campaignId) */
+  autoSave?: boolean;
 }
 
 export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
   checkers,
   onReportsUpdate,
+  campaignId: parentCampaignId,
+  checkerIdMap,
+  autoSave = false,
 }) => {
   const [open, setOpen] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
@@ -69,13 +82,18 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [resultsPage, setResultsPage] = useState(1);
+  const resultsPageSize = 10;
 
   const {
     campaigns,
     fetchCampaigns,
     isLoading: campaignsLoading,
   } = useCampaignStore();
-  const { createChecker } = useAudienceCheckerStore();
+  const { createChecker, updateChecker } = useAudienceCheckerStore();
+
+  // In campaign context, auto-set the campaign ID
+  const effectiveCampaignId = parentCampaignId || selectedCampaignId;
 
   useEffect(() => {
     if (open && campaigns.length === 0) {
@@ -117,6 +135,7 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
       setSelectedCampaignId("");
       setSaveSuccess(false);
       setSaveError(null);
+      setResultsPage(1);
       setTimeout(() => {
         runBulkCheckRef.current();
       }, 100);
@@ -135,8 +154,11 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
     });
   };
 
-  const handleSaveAllToCampaign = async () => {
-    if (!summary || !selectedCampaignId) return;
+  const handleSaveAllToCampaign = async (
+    summaryOverride?: BulkCheckSummary,
+  ) => {
+    const activeSummary = summaryOverride || summary;
+    if (!activeSummary || !effectiveCampaignId) return;
 
     setIsSaving(true);
     setSaveSuccess(false);
@@ -144,7 +166,7 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
 
     try {
       // Get all checkers that have valid reports
-      const checkersToSave = summary.checkers.filter(
+      const checkersToSave = activeSummary.checkers.filter(
         (item) => item.report && !item.error,
       );
 
@@ -189,13 +211,27 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
           }),
         };
 
-        await createChecker({
-          campaignId: selectedCampaignId,
-          name: originalChecker.name,
-          query: queryText,
-          rules: rulesData as any,
-          alignmentReport: alignmentReportData,
-        });
+        // Check if this checker already exists in the database
+        const existingApiId = checkerIdMap?.get(item.id);
+
+        if (existingApiId) {
+          // UPDATE existing record instead of creating a duplicate
+          await updateChecker(existingApiId, {
+            name: originalChecker.name,
+            query: queryText,
+            rules: rulesData as any,
+            alignmentReport: alignmentReportData,
+          } as any);
+        } else {
+          // CREATE new record only if it doesn't exist yet
+          await createChecker({
+            campaignId: effectiveCampaignId,
+            name: originalChecker.name,
+            query: queryText,
+            rules: rulesData as any,
+            alignmentReport: alignmentReportData,
+          });
+        }
       }
 
       setSaveSuccess(true);
@@ -337,6 +373,11 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
 
     // Update reports in parent
     onReportsUpdate(reports);
+
+    // Auto-save if in campaign context and autoSave is enabled
+    if (autoSave && parentCampaignId) {
+      handleSaveAllToCampaign(newSummary);
+    }
   };
 
   runBulkCheckRef.current = runBulkCheck;
@@ -455,172 +496,263 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
 
               {/* Individual Results */}
               <div>
-                <h3 className="text-sm font-semibold mb-3">
-                  Individual Results
-                </h3>
-                <div className="space-y-2">
-                  {summary.checkers.map((item) => (
-                    <div key={item.id} className="border rounded-lg">
-                      <button
-                        onClick={() => toggleExpanded(item.id)}
-                        className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          {getStatusIcon(item.report, item.error)}
-                          <span className="font-medium">{item.name}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {item.report && !expandedItems.has(item.id) && (
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className="text-green-600 dark:text-green-400">
-                                {item.report.matched.length} matched
-                              </span>
-                              <span>•</span>
-                              <span className="text-red-600 dark:text-red-400">
-                                {item.report.misaligned.length} issues
-                              </span>
-                              <span>•</span>
-                              <span>{item.report.totalConditions} total</span>
-                            </div>
-                          )}
-                          {item.report && (
-                            <span
-                              className={`text-sm font-semibold ${getStatusColor(
-                                item.report,
-                                item.error,
-                              )}`}
-                            >
-                              {item.report.alignmentPercentage}%
-                            </span>
-                          )}
-                          {item.error && (
-                            <span className="text-sm text-red-600 dark:text-red-400">
-                              Error
-                            </span>
-                          )}
-                          {expandedItems.has(item.id) ? (
-                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </div>
-                      </button>
-
-                      {expandedItems.has(item.id) && (
-                        <div className="px-3 pb-3 border-t">
-                          {item.error ? (
-                            <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-                              {item.error}
-                            </p>
-                          ) : item.report ? (
-                            <div className="mt-3 space-y-3">
-                              <div className="grid grid-cols-3 gap-2 text-sm">
-                                <div>
-                                  <span className="text-muted-foreground">
-                                    Matched:
-                                  </span>{" "}
-                                  <span className="font-medium text-green-600 dark:text-green-400">
-                                    {item.report.matched.length}
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">
-                                    Issues:
-                                  </span>{" "}
-                                  <span className="font-medium text-red-600 dark:text-red-400">
-                                    {item.report.misaligned.length}
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">
-                                    Total:
-                                  </span>{" "}
-                                  <span className="font-medium">
-                                    {item.report.totalConditions}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {item.report.misaligned.length > 0 && (
-                                <div className="text-sm">
-                                  <p className="text-muted-foreground mb-1">
-                                    Issues:
-                                  </p>
-                                  <ul className="space-y-1 ml-2">
-                                    {item.report.misaligned
-                                      .slice(0, 3)
-                                      .map((issue, idx) => (
-                                        <li
-                                          key={`${item.id}-issue-${idx}`}
-                                          className="text-red-600 dark:text-red-400"
-                                        >
-                                          • {issue.condition}
-                                        </li>
-                                      ))}
-                                    {item.report.misaligned.length > 3 && (
-                                      <li className="text-muted-foreground">
-                                        ... and{" "}
-                                        {item.report.misaligned.length - 3} more
-                                      </li>
-                                    )}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold">Individual Results</h3>
+                  {summary.checkers.length > resultsPageSize && (
+                    <span className="text-xs text-muted-foreground">
+                      {Math.min(
+                        (resultsPage - 1) * resultsPageSize + 1,
+                        summary.checkers.length,
                       )}
-                    </div>
-                  ))}
+                      –
+                      {Math.min(
+                        resultsPage * resultsPageSize,
+                        summary.checkers.length,
+                      )}{" "}
+                      of {summary.checkers.length}
+                    </span>
+                  )}
                 </div>
+                <div className="space-y-2">
+                  {summary.checkers
+                    .slice(
+                      (resultsPage - 1) * resultsPageSize,
+                      resultsPage * resultsPageSize,
+                    )
+                    .map((item) => (
+                      <div key={item.id} className="border rounded-lg">
+                        <button
+                          onClick={() => toggleExpanded(item.id)}
+                          className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            {getStatusIcon(item.report, item.error)}
+                            <span className="font-medium">{item.name}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {item.report && !expandedItems.has(item.id) && (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span className="text-green-600 dark:text-green-400">
+                                  {item.report.matched.length} matched
+                                </span>
+                                <span>•</span>
+                                <span className="text-red-600 dark:text-red-400">
+                                  {item.report.misaligned.length} issues
+                                </span>
+                                <span>•</span>
+                                <span>{item.report.totalConditions} total</span>
+                              </div>
+                            )}
+                            {item.report && (
+                              <span
+                                className={`text-sm font-semibold ${getStatusColor(
+                                  item.report,
+                                  item.error,
+                                )}`}
+                              >
+                                {item.report.alignmentPercentage}%
+                              </span>
+                            )}
+                            {item.error && (
+                              <span className="text-sm text-red-600 dark:text-red-400">
+                                Error
+                              </span>
+                            )}
+                            {expandedItems.has(item.id) ? (
+                              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                        </button>
+
+                        {expandedItems.has(item.id) && (
+                          <div className="px-3 pb-3 border-t">
+                            {item.error ? (
+                              <p className="text-sm text-red-600 dark:text-red-400 mt-2">
+                                {item.error}
+                              </p>
+                            ) : item.report ? (
+                              <div className="mt-3 space-y-3">
+                                <div className="grid grid-cols-3 gap-2 text-sm">
+                                  <div>
+                                    <span className="text-muted-foreground">
+                                      Matched:
+                                    </span>{" "}
+                                    <span className="font-medium text-green-600 dark:text-green-400">
+                                      {item.report.matched.length}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">
+                                      Issues:
+                                    </span>{" "}
+                                    <span className="font-medium text-red-600 dark:text-red-400">
+                                      {item.report.misaligned.length}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">
+                                      Total:
+                                    </span>{" "}
+                                    <span className="font-medium">
+                                      {item.report.totalConditions}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {item.report.misaligned.length > 0 && (
+                                  <div className="text-sm">
+                                    <p className="text-muted-foreground mb-1">
+                                      Issues:
+                                    </p>
+                                    <ul className="space-y-1 ml-2">
+                                      {item.report.misaligned
+                                        .slice(0, 3)
+                                        .map((issue, idx) => (
+                                          <li
+                                            key={`${item.id}-issue-${idx}`}
+                                            className="text-red-600 dark:text-red-400"
+                                          >
+                                            • {issue.condition}
+                                          </li>
+                                        ))}
+                                      {item.report.misaligned.length > 3 && (
+                                        <li className="text-muted-foreground">
+                                          ... and{" "}
+                                          {item.report.misaligned.length - 3}{" "}
+                                          more
+                                        </li>
+                                      )}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                </div>
+                {/* Results Pagination */}
+                {summary.checkers.length > resultsPageSize && (
+                  <div className="flex items-center justify-center gap-1 mt-3">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setResultsPage(1)}
+                      disabled={resultsPage === 1}
+                    >
+                      <ChevronsLeft className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setResultsPage((p) => Math.max(1, p - 1))}
+                      disabled={resultsPage === 1}
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </Button>
+                    <span className="px-2 text-xs font-medium">
+                      {resultsPage} /{" "}
+                      {Math.ceil(summary.checkers.length / resultsPageSize)}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() =>
+                        setResultsPage((p) =>
+                          Math.min(
+                            Math.ceil(
+                              summary.checkers.length / resultsPageSize,
+                            ),
+                            p + 1,
+                          ),
+                        )
+                      }
+                      disabled={
+                        resultsPage ===
+                        Math.ceil(summary.checkers.length / resultsPageSize)
+                      }
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() =>
+                        setResultsPage(
+                          Math.ceil(summary.checkers.length / resultsPageSize),
+                        )
+                      }
+                      disabled={
+                        resultsPage ===
+                        Math.ceil(summary.checkers.length / resultsPageSize)
+                      }
+                    >
+                      <ChevronsRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {/* Save All to Campaign */}
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium">
-                    Save All Validations to Campaign
+                    {parentCampaignId
+                      ? "Save All Validations"
+                      : "Save All Validations to Campaign"}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    Save all{" "}
+                    {parentCampaignId ? "Update" : "Save"} all{" "}
                     {
                       summary.checkers.filter((c) => c.report && !c.error)
                         .length
                     }{" "}
-                    successful validation(s) to a campaign at once.
+                    successful validation(s)
+                    {parentCampaignId ? "" : " to a campaign"} at once.
                   </p>
-                  {campaignsLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading campaigns...
-                    </div>
-                  ) : campaigns.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No campaigns found. Create a campaign first.
-                    </p>
-                  ) : (
-                    <Select
-                      value={selectedCampaignId}
-                      onValueChange={setSelectedCampaignId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a campaign" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {campaigns.map((campaign) => (
-                          <SelectItem key={campaign.id} value={campaign.id}>
-                            {campaign.name}
-                            {campaign.campaignType && (
-                              <span className="text-muted-foreground ml-2">
-                                ({campaign.campaignType})
-                              </span>
-                            )}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  {!parentCampaignId && (
+                    <>
+                      {campaignsLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading campaigns...
+                        </div>
+                      ) : campaigns.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          No campaigns found. Create a campaign first.
+                        </p>
+                      ) : (
+                        <Select
+                          value={selectedCampaignId}
+                          onValueChange={setSelectedCampaignId}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a campaign" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {campaigns.map((campaign) => (
+                              <SelectItem key={campaign.id} value={campaign.id}>
+                                {campaign.name}
+                                {campaign.campaignType && (
+                                  <span className="text-muted-foreground ml-2">
+                                    ({campaign.campaignType})
+                                  </span>
+                                )}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </>
                   )}
 
                   {saveError && (
@@ -656,11 +788,11 @@ export const BulkCheckDialog: React.FC<BulkCheckDialogProps> = ({
                   Re-run Check
                 </Button>
                 <Button
-                  onClick={handleSaveAllToCampaign}
+                  onClick={() => handleSaveAllToCampaign()}
                   disabled={
-                    !selectedCampaignId ||
+                    !effectiveCampaignId ||
                     isSaving ||
-                    campaigns.length === 0 ||
+                    (!parentCampaignId && campaigns.length === 0) ||
                     summary.checkers.filter((c) => c.report && !c.error)
                       .length === 0
                   }

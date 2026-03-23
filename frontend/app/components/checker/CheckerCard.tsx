@@ -31,7 +31,9 @@ interface CheckerCardProps {
   onRuleRemove: (ruleIndex: number) => void;
   onPasteBulkRules: (pastedText: string) => void;
   onReportUpdate: (report: AlignmentReport) => void;
+  onSave?: () => void;
   onCancel?: () => void;
+  isSaving?: boolean;
 }
 
 export const CheckerCard: React.FC<CheckerCardProps> = ({
@@ -48,7 +50,9 @@ export const CheckerCard: React.FC<CheckerCardProps> = ({
   onRuleRemove,
   onPasteBulkRules,
   onReportUpdate,
+  onSave,
   onCancel,
+  isSaving,
 }) => {
   const handleCheckAlignment = () => {
     if (!checker.businessRules || checker.businessRules.length === 0) {
@@ -222,7 +226,9 @@ export const CheckerCard: React.FC<CheckerCardProps> = ({
             onRuleRemove={onRuleRemove}
             onPasteBulkRules={onPasteBulkRules}
             onCheckAlignment={handleCheckAlignment}
+            onSave={onSave}
             onCancel={onCancel}
+            isSaving={isSaving}
           />
 
           <AlignmentReportPanel report={checker.report} />
